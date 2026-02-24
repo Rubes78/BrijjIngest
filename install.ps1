@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 $ServiceName = "brijjdata"
 $Repo        = "https://github.com/Rubes78/BrijjIngest.git"
 $NssmUrl     = "https://nssm.cc/release/nssm-2.24.zip"
-$OdbcUrl     = "https://go.microsoft.com/fwlink/?linkid=2282755"
+$OdbcUrl     = "https://go.microsoft.com/fwlink/?linkid=2280794"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,16 +94,49 @@ $OdbcInstalled = Get-OdbcDriver -Name "ODBC Driver 18 for SQL Server" -ErrorActi
 if ($OdbcInstalled) {
     Write-Ok "ODBC Driver 18 already installed - skipping"
 } else {
-    Write-Info "Downloading ODBC Driver 18..."
-    $OdbcMsi = Join-Path $env:TEMP "msodbcsql18.msi"
-    Invoke-WebRequest -Uri $OdbcUrl -OutFile $OdbcMsi -UseBasicParsing
-    Write-Info "Installing ODBC Driver 18 (silent)..."
-    $proc = Start-Process msiexec -ArgumentList "/quiet /i `"$OdbcMsi`" IACCEPTMSODBCSQLLICENSETERMS=YES" -Wait -PassThru
-    if ($proc.ExitCode -ne 0) {
-        Die "ODBC Driver installation failed (exit code $($proc.ExitCode))."
+    # Try winget first - cleanest and most reliable method
+    $OdbcDone = $false
+    $WingetAvailable = $null
+    try { $WingetAvailable = & winget --version 2>&1 } catch {}
+
+    if ($WingetAvailable) {
+        Write-Info "Installing ODBC Driver 18 via winget..."
+        try {
+            winget install --id Microsoft.ODBCDriver18forSQLServer --silent `
+                --accept-source-agreements --accept-package-agreements
+            $OdbcDone = $true
+            Write-Ok "ODBC Driver 18 installed via winget"
+        } catch {
+            Write-Warn "winget install failed - falling back to direct download..."
+        }
     }
-    Remove-Item $OdbcMsi -Force
-    Write-Ok "ODBC Driver 18 installed"
+
+    if (-not $OdbcDone) {
+        Write-Info "Downloading ODBC Driver 18 MSI..."
+        $OdbcMsi = Join-Path $env:TEMP "msodbcsql18.msi"
+
+        # Use WebClient which follows redirects more reliably than Invoke-WebRequest
+        try {
+            $WebClient = New-Object System.Net.WebClient
+            $WebClient.DownloadFile($OdbcUrl, $OdbcMsi)
+        } catch {
+            # Last resort: Invoke-WebRequest with redirect following
+            Invoke-WebRequest -Uri $OdbcUrl -OutFile $OdbcMsi -UseBasicParsing -MaximumRedirection 10
+        }
+
+        $MsiSize = (Get-Item $OdbcMsi).Length
+        if ($MsiSize -lt 1MB) {
+            Die "Downloaded file is too small ($MsiSize bytes) - download may have failed. Install ODBC Driver 18 manually from https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server"
+        }
+
+        Write-Info "Installing ODBC Driver 18..."
+        $proc = Start-Process msiexec -ArgumentList "/quiet /i `"$OdbcMsi`" IACCEPTMSODBCSQLLICENSETERMS=YES" -Wait -PassThru
+        Remove-Item $OdbcMsi -Force -ErrorAction SilentlyContinue
+        if ($proc.ExitCode -ne 0) {
+            Die "ODBC Driver installation failed (exit code $($proc.ExitCode)).`nInstall manually from https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server"
+        }
+        Write-Ok "ODBC Driver 18 installed"
+    }
 }
 
 # ---------------------------------------------------------------------------
