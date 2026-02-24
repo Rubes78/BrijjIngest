@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ServiceName = "brijjdata"
 $Repo        = "https://github.com/Rubes78/BrijjIngest.git"
-$NssmUrl     = "https://nssm.cc/release/nssm-2.24.zip"
+$WinSwUrl    = "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe"
 $OdbcUrl     = "https://go.microsoft.com/fwlink/?linkid=2280794"
 
 # ---------------------------------------------------------------------------
@@ -189,8 +189,8 @@ if (-not (Test-Path $PythonExe)) {
 }
 
 Write-Info "Installing Python dependencies..."
-& $PipExe install --quiet --upgrade pip
-& $PipExe install --quiet -r $ReqFile
+& $PythonExe -m pip install --quiet --upgrade pip
+& $PythonExe -m pip install --quiet -r $ReqFile
 Write-Ok "Dependencies installed"
 
 # ---------------------------------------------------------------------------
@@ -208,54 +208,60 @@ if (Test-Path $ConfigFile) {
 }
 
 # ---------------------------------------------------------------------------
-# NSSM - Windows service manager
+# WinSW - Windows Service Wrapper (GitHub, always available)
 # ---------------------------------------------------------------------------
-Write-Header "Setting up Windows service (NSSM)"
-$NssmDir = Join-Path $InstallDir "nssm"
-$NssmExe = Join-Path $NssmDir "nssm.exe"
+Write-Header "Setting up Windows service (WinSW)"
+$LogDir    = Join-Path $InstallDir "logs"
+$WinSwExe  = Join-Path $InstallDir "$ServiceName.exe"
+$WinSwXml  = Join-Path $InstallDir "$ServiceName.xml"
 
-if (-not (Test-Path $NssmExe)) {
-    Write-Info "Downloading NSSM..."
-    $NssmZip     = Join-Path $env:TEMP "nssm.zip"
-    $NssmExtract = Join-Path $env:TEMP "nssm-extract"
-    Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip -UseBasicParsing
-    Expand-Archive -Path $NssmZip -DestinationPath $NssmExtract -Force
-    New-Item -ItemType Directory -Force -Path $NssmDir | Out-Null
-    Copy-Item (Join-Path $NssmExtract "nssm-2.24\win64\nssm.exe") $NssmExe -Force
-    Remove-Item $NssmZip    -Force
-    Remove-Item $NssmExtract -Recurse -Force
-    Write-Ok "NSSM downloaded"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+
+if (-not (Test-Path $WinSwExe)) {
+    Write-Info "Downloading WinSW service wrapper..."
+    $WebClient = New-Object System.Net.WebClient
+    $WebClient.DownloadFile($WinSwUrl, $WinSwExe)
+    Write-Ok "WinSW downloaded"
 } else {
-    Write-Ok "NSSM already present"
+    Write-Ok "WinSW already present"
 }
+
+# Write the XML service definition
+$WebConfigPy = Join-Path $InstallDir "web_config.py"
+$WinSwConfig = @"
+<service>
+  <id>$ServiceName</id>
+  <name>BrijjData Configuration UI</name>
+  <description>BrijjData ingest and configuration web interface</description>
+  <executable>$PythonExe</executable>
+  <arguments>$WebConfigPy</arguments>
+  <workingdirectory>$InstallDir</workingdirectory>
+  <env name="BRIJJ_HOST" value="$BindHost"/>
+  <env name="BRIJJ_PORT" value="$Port"/>
+  <env name="PYTHONUNBUFFERED" value="1"/>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="5 sec"/>
+  <logpath>$LogDir</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>3</keepFiles>
+  </log>
+</service>
+"@
+[System.IO.File]::WriteAllText($WinSwXml, $WinSwConfig)
 
 # Remove existing service if present
 $ExistingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($ExistingService) {
     Write-Info "Removing existing service registration..."
     if ($ExistingService.Status -eq "Running") {
-        & $NssmExe stop $ServiceName confirm | Out-Null
+        & $WinSwExe stop | Out-Null
     }
-    & $NssmExe remove $ServiceName confirm | Out-Null
+    & $WinSwExe uninstall | Out-Null
 }
 
-# Create log directory
-$LogDir = Join-Path $InstallDir "logs"
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-
-# Install service
-$WebConfigPy = Join-Path $InstallDir "web_config.py"
 Write-Info "Installing service '$ServiceName'..."
-& $NssmExe install $ServiceName $PythonExe $WebConfigPy
-& $NssmExe set $ServiceName AppDirectory       $InstallDir
-& $NssmExe set $ServiceName AppEnvironmentExtra "BRIJJ_HOST=$BindHost" "BRIJJ_PORT=$Port" "PYTHONUNBUFFERED=1"
-& $NssmExe set $ServiceName Start              SERVICE_AUTO_START
-& $NssmExe set $ServiceName AppStdout          (Join-Path $LogDir "brijjdata.log")
-& $NssmExe set $ServiceName AppStderr          (Join-Path $LogDir "brijjdata.log")
-& $NssmExe set $ServiceName AppRotateFiles     1
-& $NssmExe set $ServiceName AppRotateBytes     10485760
-& $NssmExe set $ServiceName DisplayName        "BrijjData Configuration UI"
-& $NssmExe set $ServiceName Description        "BrijjData ingest and configuration web interface"
+& $WinSwExe install
 Write-Ok "Service installed"
 
 # ---------------------------------------------------------------------------
@@ -275,7 +281,7 @@ if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
     Write-Warn "Service NOT started - config.ini still has placeholder values."
     Write-Warn "Edit $ConfigFile then run:  net start $ServiceName"
 } else {
-    Start-Service $ServiceName
+    & $WinSwExe start
     Write-Ok "Service started"
 }
 
@@ -294,7 +300,7 @@ Write-Host ""
 Write-Host "  Install dir : $InstallDir"
 Write-Host "  Config file : $ConfigFile"
 Write-Host "  Log file    : $(Join-Path $LogDir 'brijjdata.log')"
-Write-Host "  Service     : $ServiceName  (net start/stop $ServiceName)"
+Write-Host "  Service     : $ServiceName  (net start $ServiceName / net stop $ServiceName)"
 Write-Host "  Web UI      : " -NoNewline
 Write-Host "http://${IP}:${Port}" -ForegroundColor Green
 Write-Host ""
