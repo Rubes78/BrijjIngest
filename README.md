@@ -51,12 +51,18 @@ sudo INSTALL_DIR=/srv/brijj BRIJJ_PORT=8080 ./install.sh
 
 ### Windows
 
-Run **PowerShell as Administrator**:
+Clone the repo, then **right-click `install.bat` → Run as administrator** — or from an Administrator command prompt:
 
-```powershell
+```cmd
 git clone https://github.com/Rubes78/BrijjIngest.git
 cd BrijjIngest
-.\install.ps1
+install.bat
+```
+
+`install.bat` calls the PowerShell installer with the correct execution policy automatically. If you need to pass parameters, run the PowerShell script directly from an Administrator PowerShell prompt:
+
+```powershell
+.\install.ps1 -InstallDir "D:\Apps\BrijjIngest" -Port 8080
 ```
 
 Optional overrides:
@@ -200,7 +206,8 @@ BrijjIngest/
 │   ├── company_form.html
 │   └── ingest_log.html
 ├── install.sh            # Linux installer (Debian/Ubuntu)
-├── install.ps1           # Windows installer (PowerShell)
+├── install.bat           # Windows installer launcher (run as Administrator)
+├── install.ps1           # Windows installer (PowerShell — called by install.bat)
 ├── requirements.txt      # Python dependencies
 ├── brijjdata.service     # systemd service definition (Linux)
 ├── start.sh / stop.sh    # Linux service helpers
