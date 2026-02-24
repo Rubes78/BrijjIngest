@@ -13,20 +13,24 @@ A Python-based data ingestion service that pulls **RCS Items** and **Sales** dat
 - **Upsert on every run** — safe to re-run; no duplicate data ever created
 - **Web UI** on port 5000 — manage database settings, API endpoints, and companies
 - **Live ingest log** — real-time streaming output while an ingest is running
-- **systemd service** — runs on boot, restartable at any time
+- Runs as a **system service** on both Linux (systemd) and Windows (NSSM)
 
 ---
 
 ## Requirements
 
-- Debian 11/12 or Ubuntu 20.04/22.04/24.04
-- Python 3.10+
-- SQL Server 2017+ (tested on SQL Server 2022)
-- Network access to `productionsystem-api.brijjworks.com`, `company-api.brijjworks.com`, `pos-api.brijjworks.com`
+| | Linux | Windows |
+|---|---|---|
+| OS | Debian 11/12, Ubuntu 20.04/22.04/24.04 | Windows 10/11, Server 2019/2022 |
+| Python | 3.10+ | 3.10+ |
+| SQL Server | 2017+ | 2017+ |
+| ODBC Driver | Installed by `install.sh` | Installed by `install.ps1` |
 
 ---
 
 ## Installation
+
+### Linux
 
 ```bash
 git clone https://github.com/Rubes78/BrijjIngest.git
@@ -34,15 +38,7 @@ cd BrijjIngest
 sudo ./install.sh
 ```
 
-The installer will:
-1. Install system packages (`python3-venv`, `unixodbc-dev`, etc.)
-2. Install **Microsoft ODBC Driver 18 for SQL Server**
-3. Create a Python virtual environment and install dependencies
-4. Scaffold `config.ini` from the example template
-5. Install and enable the `brijjdata` systemd service
-
-### Optional environment overrides
-
+Optional overrides:
 ```bash
 sudo INSTALL_DIR=/srv/brijj BRIJJ_PORT=8080 ./install.sh
 ```
@@ -53,13 +49,40 @@ sudo INSTALL_DIR=/srv/brijj BRIJJ_PORT=8080 ./install.sh
 | `BRIJJ_PORT` | `5000` | Web UI port |
 | `BRIJJ_HOST` | `0.0.0.0` | Bind address |
 
+### Windows
+
+Run **PowerShell as Administrator**:
+
+```powershell
+git clone https://github.com/Rubes78/BrijjIngest.git
+cd BrijjIngest
+.\install.ps1
+```
+
+Optional overrides:
+```powershell
+.\install.ps1 -InstallDir "D:\Apps\BrijjIngest" -Port 8080
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `-InstallDir` | `C:\BrijjIngest` | Installation directory |
+| `-Port` | `5000` | Web UI port |
+| `-BindHost` | `0.0.0.0` | Bind address |
+
+Both installers handle:
+1. Microsoft ODBC Driver 18 for SQL Server (skipped if already installed)
+2. Python virtual environment + dependencies
+3. `config.ini` scaffolded from the example template (never overwrites an existing file)
+4. System service installation (systemd on Linux, NSSM on Windows)
+
 ---
 
 ## Configuration
 
-After installing, open the web UI and configure:
+After installing, open the web UI at `http://<server>:5000` and configure:
 
-1. **Database** — SQL Server host, port, login credentials
+1. **Database** — SQL Server host, port, and login credentials
 2. **API Endpoints** — Brijj API base URLs and page size (defaults are correct for production)
 3. **Companies** — Add one entry per Brijj company with its API credentials and target database name
 
@@ -67,9 +90,9 @@ Or edit `config.ini` directly:
 
 ```ini
 [database]
-server = YOUR_SQL_SERVER_HOST
-port   = 1433
-user   = sa
+server   = YOUR_SQL_SERVER_HOST
+port     = 1433
+user     = sa
 password = YOUR_PASSWORD
 
 [apis]
@@ -113,6 +136,8 @@ venv/bin/python ingest_brijj.py --company VD001 --start-date 2026-01-01 --end-da
 venv/bin/python ingest_brijj.py --start-date 2026-02-01 --end-date 2026-02-24
 ```
 
+On Windows, replace `venv/bin/python` with `venv\Scripts\python.exe`.
+
 ---
 
 ## Database Schema
@@ -126,11 +151,13 @@ Each company database contains four tables:
 | `sales_order_items` | `salesOrderItemId` | Line items for each order |
 | `sales_payments` | `id` | Payment records for each order |
 
-All tables use `MERGE` (upsert) — running the same date range multiple times updates records in place, no duplicates are created.
+All tables use `MERGE` (upsert) — running the same date range multiple times updates records in place; no duplicates are ever created.
 
 ---
 
 ## Service Management
+
+### Linux
 
 ```bash
 sudo systemctl start   brijjdata
@@ -138,8 +165,22 @@ sudo systemctl stop    brijjdata
 sudo systemctl restart brijjdata
 sudo systemctl status  brijjdata
 
-# View logs
+# View live logs
 journalctl -u brijjdata -f
+```
+
+### Windows
+
+```powershell
+net start brijjdata
+net stop  brijjdata
+
+# Or via the helper scripts in the install directory:
+start.bat
+stop.bat
+
+# View logs
+Get-Content C:\BrijjIngest\logs\brijjdata.log -Tail 50 -Wait
 ```
 
 ---
@@ -158,12 +199,12 @@ BrijjIngest/
 │   ├── companies.html
 │   ├── company_form.html
 │   └── ingest_log.html
-├── install.sh            # Portable installer
+├── install.sh            # Linux installer (Debian/Ubuntu)
+├── install.ps1           # Windows installer (PowerShell)
 ├── requirements.txt      # Python dependencies
-├── brijjdata.service     # systemd service definition
-├── start.sh              # Quick start helper
-├── stop.sh               # Quick stop helper
-├── install_service.sh    # Manual service install helper
+├── brijjdata.service     # systemd service definition (Linux)
+├── start.sh / stop.sh    # Linux service helpers
+├── install_service.sh    # Linux manual service install
 ├── config.ini.example    # Configuration template
 └── config.ini            # Live config — gitignored, never committed
 ```

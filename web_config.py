@@ -9,13 +9,16 @@ import configparser
 import os
 import queue
 import subprocess
+import sys
 import threading
 import uuid
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
-PYTHON      = os.path.join(BASE_DIR, "venv", "bin", "python")
+PYTHON      = os.path.join(BASE_DIR, "venv",
+                           "Scripts" if sys.platform == "win32" else "bin",
+                           "python.exe" if sys.platform == "win32" else "python")
 INGEST      = os.path.join(BASE_DIR, "ingest_brijj.py")
 
 app = Flask(__name__)
