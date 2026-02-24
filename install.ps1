@@ -289,18 +289,25 @@ Write-Ok "Firewall rule added for port $Port"
 # Start service
 # ---------------------------------------------------------------------------
 Write-Header "Starting service"
-$ConfigContent = Get-Content $ConfigFile -Raw
-if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
-    Write-Warn "Service NOT started - config.ini still has placeholder values."
-    Write-Warn "Edit $ConfigFile then run:  net start $ServiceName"
+& $WinSwExe start
+Write-Info "Waiting for service to come up..."
+$Started = $false
+for ($i = 0; $i -lt 15; $i++) {
+    Start-Sleep -Seconds 1
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) { $Started = $true; break }
+    } catch {}
+}
+
+if ($Started) {
+    Write-Ok "Service is up and responding"
 } else {
-    & $WinSwExe start
-    Start-Sleep -Seconds 2
     $Svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($Svc -and $Svc.Status -eq "Running") {
-        Write-Ok "Service started"
+        Write-Warn "Service is running but not responding yet - it may still be starting."
     } else {
-        Write-Warn "Service did not start. Check the log for errors:"
+        Write-Warn "Service did not start. Check the log:"
         Write-Warn "  $LogDir\brijjdata.out.log"
     }
 }
@@ -312,6 +319,8 @@ $IP = (Get-NetIPAddress -AddressFamily IPv4 |
        Where-Object { $_.InterfaceAlias -notmatch "Loopback" } |
        Select-Object -First 1).IPAddress
 
+$Url = "http://${IP}:${Port}/"
+
 Write-Host ""
 Write-Host "+----------------------------------------------+" -ForegroundColor Cyan
 Write-Host "|    BrijjIngest - Installation Complete       |" -ForegroundColor Cyan
@@ -322,14 +331,8 @@ Write-Host "  Config file : $ConfigFile"
 Write-Host "  Log file    : $LogDir\brijjdata.out.log"
 Write-Host "  Service     : net start $ServiceName / net stop $ServiceName"
 Write-Host "  Web UI      : " -NoNewline
-Write-Host "http://${IP}:${Port}" -ForegroundColor Green
+Write-Host $Url -ForegroundColor Green
 Write-Host ""
-if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
-    Write-Host "  Next step:" -ForegroundColor Yellow
-    Write-Host "    1. Edit $ConfigFile" -ForegroundColor Yellow
-    Write-Host "    2. Run:  net start $ServiceName" -ForegroundColor Yellow
-} else {
-    Write-Host "  If the UI is not reachable, check the log:" -ForegroundColor Yellow
-    Write-Host "    type $LogDir\brijjdata.out.log" -ForegroundColor Yellow
-}
+Write-Host "  Opening browser..."
+Start-Process $Url
 Write-Host ""
