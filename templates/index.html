@@ -6,94 +6,114 @@
   <h1><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h1>
 </div>
 
+<!-- Config summary row -->
 <div class="row g-3 mb-4">
+
   <!-- Database card -->
-  <div class="col-md-4">
+  <div class="col-md-6">
     <div class="card h-100">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="bi bi-server me-2 text-primary"></i>Database</span>
         <a href="/database" class="btn btn-sm btn-outline-secondary">Edit</a>
       </div>
       <div class="card-body">
-        {% if db %}
+        {% if db and db.server %}
           <dl class="mb-0 small">
             <dt class="text-muted">Server</dt>
             <dd>{{ db.server }}:{{ db.port }}</dd>
             <dt class="text-muted">User</dt>
-            <dd>{{ db.user }}</dd>
-            <dt class="text-muted">Databases</dt>
-            <dd>Defined per company</dd>
+            <dd class="mb-0">{{ db.user }}</dd>
           </dl>
         {% else %}
-          <p class="text-muted small mb-0">Not configured.</p>
+          <p class="text-muted small mb-0">Not configured. <a href="/database">Set up now</a></p>
         {% endif %}
       </div>
     </div>
   </div>
 
   <!-- APIs card -->
-  <div class="col-md-4">
+  <div class="col-md-6">
     <div class="card h-100">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>API Endpoints</span>
         <a href="/apis" class="btn btn-sm btn-outline-secondary">Edit</a>
       </div>
       <div class="card-body">
-        {% if apis %}
+        {% if apis and apis.rcs_base %}
           <dl class="mb-0 small">
             <dt class="text-muted">RCS</dt>
             <dd class="text-truncate">{{ apis.rcs_base }}</dd>
-            <dt class="text-muted">Auth</dt>
-            <dd class="text-truncate">{{ apis.auth_base }}</dd>
             <dt class="text-muted">Sales</dt>
-            <dd class="text-truncate">{{ apis.sales_base }}</dd>
-            <dt class="text-muted">Page size</dt>
-            <dd>{{ apis.sales_page_size }}</dd>
+            <dd class="text-truncate mb-0">{{ apis.sales_base }}</dd>
           </dl>
         {% else %}
-          <p class="text-muted small mb-0">Not configured.</p>
+          <p class="text-muted small mb-0">Not configured. <a href="/apis">Set up now</a></p>
         {% endif %}
       </div>
     </div>
   </div>
 
-  <!-- Companies summary card -->
-  <div class="col-md-4">
-    <div class="card h-100">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <span><i class="bi bi-building me-2 text-primary"></i>Companies</span>
-        <a href="/companies" class="btn btn-sm btn-outline-secondary">Manage</a>
-      </div>
-      <div class="card-body">
-        {% if companies %}
-          <div class="mb-2 small">
-            <span class="fw-semibold">{{ companies|length }}</span> configured &nbsp;·&nbsp;
-            <span class="fw-semibold text-success">{{ companies|selectattr('enabled','equalto',true)|list|length }}</span> enabled
-          </div>
-          {% for c in companies %}
-            <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
-              <span class="small fw-medium">{{ c.company_id }}</span>
-              <span class="badge rounded-pill {{ 'badge-enabled' if c.enabled else 'badge-disabled' }}">
-                {{ 'Enabled' if c.enabled else 'Disabled' }}
-              </span>
-            </div>
-          {% endfor %}
-        {% else %}
-          <p class="text-muted small mb-0">No companies configured.</p>
-        {% endif %}
-      </div>
-    </div>
-  </div>
 </div>
 
-<!-- Config file path info -->
+<!-- Per-company data counts -->
 <div class="card">
-  <div class="card-body d-flex align-items-center gap-3">
-    <i class="bi bi-file-earmark-text fs-4 text-secondary"></i>
-    <div>
-      <div class="fw-semibold small">Config file</div>
-      <code class="text-muted small">{{ config_path }}</code>
-    </div>
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-table me-2 text-primary"></i>Data Summary</span>
+    <a href="/companies" class="btn btn-sm btn-outline-secondary">Manage Companies</a>
   </div>
+
+  {% if companies %}
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Company</th>
+          <th>Database</th>
+          <th class="text-end">RCS Items</th>
+          <th class="text-end">Orders</th>
+          <th class="text-end">Line Items</th>
+          <th class="text-end">Payments</th>
+          <th class="text-center">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in companies %}
+        {% set s = stats.get(c.company_id) %}
+        <tr>
+          <td class="fw-semibold">{{ c.company_id }}</td>
+          <td><code class="small">{{ c.db_name or '—' }}</code></td>
+
+          {% if s is none %}
+            <td colspan="4" class="text-center text-muted small fst-italic">
+              {% if not c.db_name %}
+                No database configured
+              {% else %}
+                Could not connect to database
+              {% endif %}
+            </td>
+          {% else %}
+            <td class="text-end">{{ '{:,}'.format(s.rcs_items)         if s.rcs_items         is not none else '—' }}</td>
+            <td class="text-end">{{ '{:,}'.format(s.sales_orders)      if s.sales_orders      is not none else '—' }}</td>
+            <td class="text-end">{{ '{:,}'.format(s.sales_order_items) if s.sales_order_items is not none else '—' }}</td>
+            <td class="text-end">{{ '{:,}'.format(s.sales_payments)    if s.sales_payments    is not none else '—' }}</td>
+          {% endif %}
+
+          <td class="text-center">
+            <span class="badge rounded-pill {{ 'badge-enabled' if c.enabled else 'badge-disabled' }}">
+              {{ 'Enabled' if c.enabled else 'Disabled' }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-building fs-1 d-block mb-3 opacity-25"></i>
+    <p class="mb-3">No companies configured yet.</p>
+    <a href="/companies/add" class="btn btn-primary">Add your first company</a>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

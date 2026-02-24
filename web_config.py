@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import uuid
+import pyodbc
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -65,17 +66,58 @@ def get_companies(cfg) -> list:
         })
     return companies
 
+# ── DB stats ──────────────────────────────────────────────────────────────────
+
+def get_company_stats(cfg: configparser.ConfigParser, companies: list) -> dict:
+    """Return row counts for each company's database. Never raises."""
+    db   = get_section(cfg, "database")
+    srv  = db.get("server", "")
+    prt  = db.get("port", "1433")
+    usr  = db.get("user", "")
+    pwd  = db.get("password", "")
+    if not srv:
+        return {}
+
+    stats = {}
+    for c in companies:
+        cid     = c["company_id"]
+        db_name = c.get("db_name", "")
+        if not db_name:
+            stats[cid] = None
+            continue
+        try:
+            conn = pyodbc.connect(
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+                f"SERVER={srv},{prt};DATABASE={db_name};"
+                f"UID={usr};PWD={pwd};TrustServerCertificate=yes;",
+                timeout=5, autocommit=True,
+            )
+            cur = conn.cursor()
+            counts = {}
+            for table in ("rcs_items", "sales_orders", "sales_order_items", "sales_payments"):
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM {table}")
+                    counts[table] = cur.fetchone()[0]
+                except Exception:
+                    counts[table] = None
+            conn.close()
+            stats[cid] = counts
+        except Exception:
+            stats[cid] = None   # DB unreachable or not yet created
+    return stats
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    cfg = load_config()
-    db  = get_section(cfg, "database")
-    apis = get_section(cfg, "apis")
+    cfg       = load_config()
+    db        = get_section(cfg, "database")
+    apis      = get_section(cfg, "apis")
     companies = get_companies(cfg)
+    stats     = get_company_stats(cfg, companies)
     return render_template("index.html",
                            db=db, apis=apis, companies=companies,
-                           config_path=CONFIG_FILE)
+                           stats=stats, config_path=CONFIG_FILE)
 
 
 @app.route("/database", methods=["GET", "POST"])
