@@ -1,0 +1,17 @@
+[Unit]
+Description=BrijjData Configuration UI
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/Quarks/Data/DevOps/working
+ExecStart=/Quarks/Data/DevOps/working/venv/bin/python /Quarks/Data/DevOps/working/web_config.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=brijjdata
+
+[Install]
+WantedBy=multi-user.target

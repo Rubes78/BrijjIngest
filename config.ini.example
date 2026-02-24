@@ -1,0 +1,19 @@
+[database]
+server = YOUR_SQL_SERVER_HOST
+port = 1433
+user = sa
+password = YOUR_PASSWORD
+
+[apis]
+rcs_base = https://productionsystem-api.brijjworks.com
+auth_base = https://company-api.brijjworks.com/api
+sales_base = https://pos-api.brijjworks.com/api
+sales_page_size = 1000
+
+[company:EXAMPLE]
+company_id = EXAMPLE
+company_int_id = 123
+username = YourApiUsername
+password = YourApiPassword
+db_name = BrijjData_EXAMPLE
+enabled = true

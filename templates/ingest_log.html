@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Ingest {{ job.company_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <div>
+    <h1><i class="bi bi-arrow-down-circle me-2 text-primary"></i>Ingesting {{ job.company_id }}</h1>
+    <div class="text-muted small mt-1">Job ID: <code>{{ job_id }}</code></div>
+  </div>
+  <a href="/companies" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back to Companies
+  </a>
+</div>
+
+<!-- Status badge -->
+<div class="mb-3">
+  <span id="statusBadge" class="badge fs-6 px-3 py-2
+    {% if job.status == 'running' %}bg-warning text-dark
+    {% elif job.status == 'done' %}bg-success
+    {% else %}bg-danger{% endif %}">
+    {% if job.status == 'running' %}
+      <span class="spinner-border spinner-border-sm me-2" role="status"></span>Running
+    {% elif job.status == 'done' %}
+      <i class="bi bi-check-circle me-1"></i>Completed
+    {% else %}
+      <i class="bi bi-x-circle me-1"></i>Error
+    {% endif %}
+  </span>
+</div>
+
+<!-- Log output -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-terminal me-2"></i>Output</span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="toggleScroll(this)">
+      <i class="bi bi-lock"></i> Auto-scroll on
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <pre id="logOutput" style="
+      background:#0d1117;
+      color:#c9d1d9;
+      margin:0;
+      padding:16px 20px;
+      min-height:300px;
+      max-height:600px;
+      overflow-y:auto;
+      font-size:.82rem;
+      line-height:1.6;
+      border-radius:0 0 10px 10px;
+    "></pre>
+  </div>
+</div>
+
+<script>
+const logEl       = document.getElementById('logOutput');
+const statusBadge = document.getElementById('statusBadge');
+let autoScroll    = true;
+let jobStatus     = '{{ job.status }}';
+
+function appendLine(text) {
+  const line = document.createElement('div');
+
+  // Colour-code key lines
+  if (text.includes('ERROR'))          line.style.color = '#f85149';
+  else if (text.includes('WARNING'))   line.style.color = '#d29922';
+  else if (text.match(/Done —|Upserted|Received|completed/i)) line.style.color = '#3fb950';
+  else if (text.startsWith('==='))     line.style.color = '#58a6ff';
+  else if (text.startsWith('  Page ')) line.style.color = '#8b949e';
+
+  line.textContent = text;
+  logEl.appendChild(line);
+  if (autoScroll) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setStatus(status) {
+  jobStatus = status;
+  if (status === 'done') {
+    statusBadge.className = 'badge fs-6 px-3 py-2 bg-success';
+    statusBadge.innerHTML = '<i class="bi bi-check-circle me-1"></i>Completed';
+  } else if (status === 'error') {
+    statusBadge.className = 'badge fs-6 px-3 py-2 bg-danger';
+    statusBadge.innerHTML = '<i class="bi bi-x-circle me-1"></i>Error';
+  }
+}
+
+function toggleScroll(btn) {
+  autoScroll = !autoScroll;
+  btn.innerHTML = autoScroll
+    ? '<i class="bi bi-lock"></i> Auto-scroll on'
+    : '<i class="bi bi-unlock"></i> Auto-scroll off';
+  btn.className = autoScroll
+    ? 'btn btn-sm btn-outline-secondary'
+    : 'btn btn-sm btn-outline-warning';
+}
+
+// If job is already done, just render the cached lines with no SSE
+if (jobStatus !== 'running') {
+  {% for line in job.lines %}appendLine({{ line | tojson }});
+  {% endfor %}
+  setStatus('{{ job.status }}');
+} else {
+  // Connect to SSE stream
+  const evtSource = new EventSource('/ingest/{{ job_id }}/stream');
+
+  evtSource.onmessage = function(e) {
+    appendLine(e.data);
+  };
+
+  evtSource.addEventListener('done', function() {
+    evtSource.close();
+    // Fetch final status from a quick poll
+    fetch('/ingest/{{ job_id }}/status')
+      .then(r => r.json())
+      .then(d => setStatus(d.status));
+  });
+
+  evtSource.onerror = function() {
+    evtSource.close();
+    setStatus('error');
+  };
+}
+</script>
+{% endblock %}

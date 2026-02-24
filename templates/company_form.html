@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title_suffix %} — {{ 'Edit' if editing else 'Add' }} Company{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>
+    <i class="bi bi-building me-2 text-primary"></i>
+    {{ 'Edit' if editing else 'Add' }} Company
+  </h1>
+</div>
+
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">Company Credentials</div>
+      <div class="card-body p-4">
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label">Company ID <span class="text-danger">*</span></label>
+            <input type="text" name="company_id" class="form-control text-uppercase"
+                   value="{{ company.company_id }}"
+                   {{ 'readonly' if editing }}
+                   required placeholder="e.g. VD001">
+            {% if editing %}
+              <div class="form-text">Company ID cannot be changed after creation.</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Internal Numeric ID</label>
+            <input type="number" name="company_int_id" class="form-control"
+                   value="{{ company.company_int_id }}" placeholder="Auto-populated on first run">
+            <div class="form-text">Leave blank to auto-populate from the auth response.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Database Name <span class="text-danger">*</span></label>
+            <input type="text" name="db_name" class="form-control"
+                   value="{{ company.db_name }}" required placeholder="e.g. BrijjData_VD001">
+            <div class="form-text">SQL Server database where this company's data will be stored.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">API Username <span class="text-danger">*</span></label>
+            <input type="text" name="username" class="form-control"
+                   value="{{ company.username }}" required autocomplete="off">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">API Password <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="password" name="password" id="companyPassword" class="form-control"
+                     value="{{ company.password }}" required autocomplete="new-password">
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('companyPassword', this)">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="mb-4">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="enabled" id="enabledSwitch"
+                     {{ 'checked' if company.enabled }}>
+              <label class="form-check-label" for="enabledSwitch">Enabled (include in ingestion runs)</label>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-floppy me-1"></i>Save
+          </button>
+          <a href="/companies" class="btn btn-outline-secondary ms-2">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePw(id, btn) {
+  const input = document.getElementById(id);
+  const isPassword = input.type === 'password';
+  input.type = isPassword ? 'text' : 'password';
+  btn.innerHTML = isPassword ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+}
+
+// Auto-uppercase company ID
+document.querySelector('[name="company_id"]')?.addEventListener('input', function() {
+  const pos = this.selectionStart;
+  this.value = this.value.toUpperCase();
+  this.setSelectionRange(pos, pos);
+});
+</script>
+{% endblock %}

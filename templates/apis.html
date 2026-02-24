@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title_suffix %} — API Endpoints{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>API Endpoints</h1>
+</div>
+
+<div class="row">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">Brijj API URLs</div>
+      <div class="card-body p-4">
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label">RCS Base URL</label>
+            <input type="url" name="rcs_base" class="form-control" value="{{ apis.rcs_base }}" required>
+            <div class="form-text">Used for the <code>/RcsItems</code> endpoint.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Auth Base URL</label>
+            <input type="url" name="auth_base" class="form-control" value="{{ apis.auth_base }}" required>
+            <div class="form-text">Used for <code>/auth/signin</code> to obtain JWT tokens.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Sales Base URL</label>
+            <input type="url" name="sales_base" class="form-control" value="{{ apis.sales_base }}" required>
+            <div class="form-text">Used for the <code>/Sales</code> endpoint.</div>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Sales Page Size</label>
+            <input type="number" name="sales_page_size" class="form-control" value="{{ apis.sales_page_size }}" min="1" max="5000" required>
+            <div class="form-text">Number of records fetched per page. Max tested: 1000.</div>
+          </div>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-floppy me-1"></i>Save
+          </button>
+          <a href="/" class="btn btn-outline-secondary ms-2">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

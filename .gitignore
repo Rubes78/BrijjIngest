@@ -1,0 +1,13 @@
+# Credentials — never commit
+config.ini
+
+# Python virtualenv
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store

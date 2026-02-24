@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h1>
+</div>
+
+<div class="row g-3 mb-4">
+  <!-- Database card -->
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-server me-2 text-primary"></i>Database</span>
+        <a href="/database" class="btn btn-sm btn-outline-secondary">Edit</a>
+      </div>
+      <div class="card-body">
+        {% if db %}
+          <dl class="mb-0 small">
+            <dt class="text-muted">Server</dt>
+            <dd>{{ db.server }}:{{ db.port }}</dd>
+            <dt class="text-muted">User</dt>
+            <dd>{{ db.user }}</dd>
+            <dt class="text-muted">Databases</dt>
+            <dd>Defined per company</dd>
+          </dl>
+        {% else %}
+          <p class="text-muted small mb-0">Not configured.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- APIs card -->
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-cloud-arrow-up me-2 text-primary"></i>API Endpoints</span>
+        <a href="/apis" class="btn btn-sm btn-outline-secondary">Edit</a>
+      </div>
+      <div class="card-body">
+        {% if apis %}
+          <dl class="mb-0 small">
+            <dt class="text-muted">RCS</dt>
+            <dd class="text-truncate">{{ apis.rcs_base }}</dd>
+            <dt class="text-muted">Auth</dt>
+            <dd class="text-truncate">{{ apis.auth_base }}</dd>
+            <dt class="text-muted">Sales</dt>
+            <dd class="text-truncate">{{ apis.sales_base }}</dd>
+            <dt class="text-muted">Page size</dt>
+            <dd>{{ apis.sales_page_size }}</dd>
+          </dl>
+        {% else %}
+          <p class="text-muted small mb-0">Not configured.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Companies summary card -->
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-building me-2 text-primary"></i>Companies</span>
+        <a href="/companies" class="btn btn-sm btn-outline-secondary">Manage</a>
+      </div>
+      <div class="card-body">
+        {% if companies %}
+          <div class="mb-2 small">
+            <span class="fw-semibold">{{ companies|length }}</span> configured &nbsp;·&nbsp;
+            <span class="fw-semibold text-success">{{ companies|selectattr('enabled','equalto',true)|list|length }}</span> enabled
+          </div>
+          {% for c in companies %}
+            <div class="d-flex align-items-center justify-content-between py-1 border-bottom">
+              <span class="small fw-medium">{{ c.company_id }}</span>
+              <span class="badge rounded-pill {{ 'badge-enabled' if c.enabled else 'badge-disabled' }}">
+                {{ 'Enabled' if c.enabled else 'Disabled' }}
+              </span>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted small mb-0">No companies configured.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Config file path info -->
+<div class="card">
+  <div class="card-body d-flex align-items-center gap-3">
+    <i class="bi bi-file-earmark-text fs-4 text-secondary"></i>
+    <div>
+      <div class="fw-semibold small">Config file</div>
+      <code class="text-muted small">{{ config_path }}</code>
+    </div>
+  </div>
+</div>
+{% endblock %}
