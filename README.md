@@ -11,61 +11,40 @@ A Python-based data ingestion service that pulls **RCS Items** and **Sales** dat
 - **Date-range filtering** — defaults to today; specify any range via the UI or CLI
 - **Bulk loading** via pyodbc `fast_executemany` — handles large datasets efficiently
 - **Upsert on every run** — safe to re-run; no duplicate data ever created
-- **Web UI** on port 5000 — manage database settings, API endpoints, and companies
+- **Web UI** on port 5001 — manage database settings, API endpoints, and companies
 - **Live ingest log** — real-time streaming output while an ingest is running
-- Runs as a **system service** on both Linux (systemd) and Windows (NSSM)
+- Runs as a **Windows service** via WinSW, starts automatically on boot
 
 ---
 
 ## Requirements
 
-| | Linux | Windows |
-|---|---|---|
-| OS | Debian 11/12, Ubuntu 20.04/22.04/24.04 | Windows 10/11, Server 2019/2022 |
-| Python | 3.10+ | 3.10+ |
-| SQL Server | 2017+ | 2017+ |
-| ODBC Driver | Installed by `install.sh` | Installed by `install.ps1` |
+- Windows 10/11 or Windows Server 2019/2022
+- Python 3.10+ (installed automatically if missing)
+- SQL Server 2017+
+- Microsoft ODBC Driver 18 for SQL Server (installed automatically)
 
 ---
 
 ## Installation
 
-### Linux
-
-```bash
-git clone https://github.com/Rubes78/BrijjIngest.git
-cd BrijjIngest
-sudo ./install.sh
-```
-
-Optional overrides:
-```bash
-sudo INSTALL_DIR=/srv/brijj BRIJJ_PORT=8080 ./install.sh
-```
-
-| Variable | Default | Description |
-|---|---|---|
-| `INSTALL_DIR` | `/opt/brijjingest` | Installation directory |
-| `BRIJJ_PORT` | `5000` | Web UI port |
-| `BRIJJ_HOST` | `0.0.0.0` | Bind address |
-
-### Windows
-
-Clone the repo, then **right-click `install.bat` → Run as administrator** — or from an Administrator command prompt:
+Clone the repo or download and extract the ZIP from GitHub, then **right-click `install.bat` and choose Run as administrator**:
 
 ```cmd
-git clone https://github.com/Rubes78/BrijjIngest.git
-cd BrijjIngest
 install.bat
 ```
 
-`install.bat` calls the PowerShell installer with the correct execution policy automatically. If you need to pass parameters, run the PowerShell script directly from an Administrator PowerShell prompt:
+The installer will:
+1. Verify or install Python 3.10+ via winget
+2. Install Microsoft ODBC Driver 18 for SQL Server
+3. Create a Python virtual environment and install dependencies
+4. Copy `config.ini.example` to `config.ini` (only on first install)
+5. Install the `brijjdata` Windows service via WinSW
+6. Open a Windows Firewall rule for port 5001
+7. Start the service and open the web UI in your browser
 
-```powershell
-.\install.ps1 -InstallDir "D:\Apps\BrijjIngest" -Port 8080
-```
+To install to a different directory or port, run the PowerShell script directly from an Administrator PowerShell prompt:
 
-Optional overrides:
 ```powershell
 .\install.ps1 -InstallDir "D:\Apps\BrijjIngest" -Port 8080
 ```
@@ -73,26 +52,20 @@ Optional overrides:
 | Parameter | Default | Description |
 |---|---|---|
 | `-InstallDir` | `C:\BrijjIngest` | Installation directory |
-| `-Port` | `5000` | Web UI port |
+| `-Port` | `5001` | Web UI port |
 | `-BindHost` | `0.0.0.0` | Bind address |
-
-Both installers handle:
-1. Microsoft ODBC Driver 18 for SQL Server (skipped if already installed)
-2. Python virtual environment + dependencies
-3. `config.ini` scaffolded from the example template (never overwrites an existing file)
-4. System service installation (systemd on Linux, NSSM on Windows)
 
 ---
 
 ## Configuration
 
-After installing, open the web UI at `http://<server>:5000` and configure:
+After the browser opens, configure:
 
 1. **Database** — SQL Server host, port, and login credentials
 2. **API Endpoints** — Brijj API base URLs and page size (defaults are correct for production)
 3. **Companies** — Add one entry per Brijj company with its API credentials and target database name
 
-Or edit `config.ini` directly:
+Or edit `C:\BrijjIngest\config.ini` directly:
 
 ```ini
 [database]
@@ -131,18 +104,13 @@ enabled        = true
 
 ### Via the CLI
 
-```bash
-# Today only (default)
-venv/bin/python ingest_brijj.py --company VD001
+```cmd
+venv\Scripts\python.exe ingest_brijj.py --company VD001
 
-# Specific date range
-venv/bin/python ingest_brijj.py --company VD001 --start-date 2026-01-01 --end-date 2026-01-31
+venv\Scripts\python.exe ingest_brijj.py --company VD001 --start-date 2026-01-01 --end-date 2026-01-31
 
-# All enabled companies
-venv/bin/python ingest_brijj.py --start-date 2026-02-01 --end-date 2026-02-24
+venv\Scripts\python.exe ingest_brijj.py --start-date 2026-02-01 --end-date 2026-02-24
 ```
-
-On Windows, replace `venv/bin/python` with `venv\Scripts\python.exe`.
 
 ---
 
@@ -163,31 +131,19 @@ All tables use `MERGE` (upsert) — running the same date range multiple times u
 
 ## Service Management
 
-### Linux
-
-```bash
-sudo systemctl start   brijjdata
-sudo systemctl stop    brijjdata
-sudo systemctl restart brijjdata
-sudo systemctl status  brijjdata
-
-# View live logs
-journalctl -u brijjdata -f
-```
-
-### Windows
-
-```powershell
+```cmd
 net start brijjdata
 net stop  brijjdata
 
-# Or via the helper scripts in the install directory:
+:: Or use the helper scripts in the install directory:
 start.bat
 stop.bat
 
-# View logs
-Get-Content C:\BrijjIngest\logs\brijjdata.log -Tail 50 -Wait
+:: View logs:
+type C:\BrijjIngest\logs\brijjdata.out.log
 ```
+
+The service is set to start automatically on boot. It can also be managed from **Services** (`services.msc`).
 
 ---
 
@@ -205,13 +161,9 @@ BrijjIngest/
 │   ├── companies.html
 │   ├── company_form.html
 │   └── ingest_log.html
-├── install.sh            # Linux installer (Debian/Ubuntu)
 ├── install.bat           # Windows installer launcher (run as Administrator)
-├── install.ps1           # Windows installer (PowerShell — called by install.bat)
+├── install.ps1           # Windows installer (PowerShell)
 ├── requirements.txt      # Python dependencies
-├── brijjdata.service     # systemd service definition (Linux)
-├── start.sh / stop.sh    # Linux service helpers
-├── install_service.sh    # Linux manual service install
 ├── config.ini.example    # Configuration template
 └── config.ini            # Live config — gitignored, never committed
 ```
