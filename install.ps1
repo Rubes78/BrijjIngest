@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     BrijjIngest Windows Installer
@@ -31,32 +30,41 @@ $ErrorActionPreference = "Stop"
 $ServiceName = "brijjdata"
 $Repo        = "https://github.com/Rubes78/BrijjIngest.git"
 $NssmUrl     = "https://nssm.cc/release/nssm-2.24.zip"
-$OdbcUrl     = "https://go.microsoft.com/fwlink/?linkid=2282755"  # ODBC Driver 18 x64 MSI
+$OdbcUrl     = "https://go.microsoft.com/fwlink/?linkid=2282755"
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 function Write-Header { param($Text)
     Write-Host ""
-    Write-Host "── $Text ──" -ForegroundColor Cyan
+    Write-Host "--- $Text ---" -ForegroundColor Cyan
 }
 function Write-Ok   { param($Text) Write-Host "[OK]   $Text" -ForegroundColor Green }
 function Write-Info { param($Text) Write-Host "[INFO] $Text" -ForegroundColor Blue }
 function Write-Warn { param($Text) Write-Host "[WARN] $Text" -ForegroundColor Yellow }
 function Die        { param($Text) Write-Host "[ERROR] $Text" -ForegroundColor Red; exit 1 }
 
-# ── Verify running as Administrator ───────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Administrator check
+# ---------------------------------------------------------------------------
 Write-Header "BrijjIngest Installer"
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $IsAdmin) { Die "Please run this script as Administrator (right-click → Run as Administrator)." }
+if (-not $IsAdmin) {
+    Die "Please run this script as Administrator (right-click -> Run as Administrator)."
+}
 
-# ── Check Python 3.10+ ────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Check Python 3.10+
+# ---------------------------------------------------------------------------
 Write-Header "Checking Python"
 $PythonCmd = $null
 foreach ($cmd in @("python", "python3", "py")) {
     try {
         $ver = & $cmd --version 2>&1
         if ($ver -match "Python (\d+)\.(\d+)") {
-            $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+            $major = [int]$Matches[1]
+            $minor = [int]$Matches[2]
             if ($major -eq 3 -and $minor -ge 10) {
                 $PythonCmd = $cmd
                 Write-Ok "Found $ver"
@@ -66,8 +74,7 @@ foreach ($cmd in @("python", "python3", "py")) {
     } catch {}
 }
 if (-not $PythonCmd) {
-    Write-Warn "Python 3.10+ not found."
-    Write-Info "Installing Python 3.12 via winget..."
+    Write-Warn "Python 3.10+ not found. Attempting install via winget..."
     try {
         winget install --id Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
@@ -75,33 +82,43 @@ if (-not $PythonCmd) {
         $PythonCmd = "python"
         Write-Ok "Python installed"
     } catch {
-        Die "Could not install Python automatically.`nPlease install Python 3.10+ from https://python.org and re-run this script."
+        Die "Could not install Python automatically. Install Python 3.10+ from https://python.org and re-run."
     }
 }
 
-# ── Check / install ODBC Driver 18 ────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# ODBC Driver 18
+# ---------------------------------------------------------------------------
 Write-Header "Checking ODBC Driver 18 for SQL Server"
 $OdbcInstalled = Get-OdbcDriver -Name "ODBC Driver 18 for SQL Server" -ErrorAction SilentlyContinue
 if ($OdbcInstalled) {
-    Write-Ok "ODBC Driver 18 already installed — skipping"
+    Write-Ok "ODBC Driver 18 already installed - skipping"
 } else {
     Write-Info "Downloading ODBC Driver 18..."
     $OdbcMsi = Join-Path $env:TEMP "msodbcsql18.msi"
     Invoke-WebRequest -Uri $OdbcUrl -OutFile $OdbcMsi -UseBasicParsing
     Write-Info "Installing ODBC Driver 18 (silent)..."
     $proc = Start-Process msiexec -ArgumentList "/quiet /i `"$OdbcMsi`" IACCEPTMSODBCSQLLICENSETERMS=YES" -Wait -PassThru
-    if ($proc.ExitCode -ne 0) { Die "ODBC Driver installation failed (exit code $($proc.ExitCode))." }
+    if ($proc.ExitCode -ne 0) {
+        Die "ODBC Driver installation failed (exit code $($proc.ExitCode))."
+    }
     Remove-Item $OdbcMsi -Force
     Write-Ok "ODBC Driver 18 installed"
 }
 
-# ── Clone or update repo ──────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Clone or copy repo
+# ---------------------------------------------------------------------------
 Write-Header "Setting up application in $InstallDir"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ((Resolve-Path $ScriptDir).Path -eq (New-Item -ItemType Directory -Force -Path $InstallDir).FullName) {
-    Write-Ok "Running from install directory — no clone needed"
+
+$InstallDirFull = (New-Item -ItemType Directory -Force -Path $InstallDir).FullName
+$ScriptDirFull  = (Resolve-Path $ScriptDir).Path
+
+if ($ScriptDirFull -eq $InstallDirFull) {
+    Write-Ok "Running from install directory - no copy needed"
 } elseif (Test-Path (Join-Path $InstallDir ".git")) {
-    Write-Info "Repo exists — pulling latest..."
+    Write-Info "Repo already cloned - pulling latest..."
     git -C $InstallDir pull --ff-only
     Write-Ok "Repository updated"
 } else {
@@ -112,21 +129,23 @@ if ((Resolve-Path $ScriptDir).Path -eq (New-Item -ItemType Directory -Force -Pat
         git clone $Repo $InstallDir
         Write-Ok "Repository cloned"
     } else {
-        Write-Info "git not found — copying files from current directory..."
-        New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-        $ExcludeDirs = @("venv", ".git")
-        Get-ChildItem -Path $ScriptDir | Where-Object { $_.Name -notin $ExcludeDirs } |
+        Write-Info "git not found - copying files from current directory..."
+        $ExcludeDirs = @("venv", ".git", "nssm", "logs")
+        Get-ChildItem -Path $ScriptDir |
+            Where-Object { $_.Name -notin $ExcludeDirs } |
             Copy-Item -Destination $InstallDir -Recurse -Force
         Write-Ok "Files copied to $InstallDir"
     }
 }
 
-# ── Python venv + dependencies ────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Python venv + dependencies
+# ---------------------------------------------------------------------------
 Write-Header "Setting up Python environment"
-$Venv       = Join-Path $InstallDir "venv"
-$PythonExe  = Join-Path $Venv "Scripts\python.exe"
-$PipExe     = Join-Path $Venv "Scripts\pip.exe"
-$ReqFile    = Join-Path $InstallDir "requirements.txt"
+$Venv      = Join-Path $InstallDir "venv"
+$PythonExe = Join-Path $Venv "Scripts\python.exe"
+$PipExe    = Join-Path $Venv "Scripts\pip.exe"
+$ReqFile   = Join-Path $InstallDir "requirements.txt"
 
 if (-not (Test-Path $PythonExe)) {
     Write-Info "Creating virtual environment..."
@@ -141,32 +160,37 @@ Write-Info "Installing Python dependencies..."
 & $PipExe install --quiet -r $ReqFile
 Write-Ok "Dependencies installed"
 
-# ── Config file ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Config file
+# ---------------------------------------------------------------------------
 Write-Header "Configuration"
-$ConfigFile   = Join-Path $InstallDir "config.ini"
+$ConfigFile    = Join-Path $InstallDir "config.ini"
 $ConfigExample = Join-Path $InstallDir "config.ini.example"
 if (Test-Path $ConfigFile) {
-    Write-Ok "config.ini already exists — leaving untouched"
+    Write-Ok "config.ini already exists - leaving untouched"
 } else {
     Copy-Item $ConfigExample $ConfigFile
     Write-Warn "Created config.ini from example."
-    Write-Warn "Edit it before starting the service: $ConfigFile"
+    Write-Warn "Edit before starting the service: $ConfigFile"
 }
 
-# ── NSSM (service manager) ────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# NSSM - Windows service manager
+# ---------------------------------------------------------------------------
 Write-Header "Setting up Windows service (NSSM)"
 $NssmDir = Join-Path $InstallDir "nssm"
 $NssmExe = Join-Path $NssmDir "nssm.exe"
 
 if (-not (Test-Path $NssmExe)) {
     Write-Info "Downloading NSSM..."
-    $NssmZip = Join-Path $env:TEMP "nssm.zip"
+    $NssmZip     = Join-Path $env:TEMP "nssm.zip"
+    $NssmExtract = Join-Path $env:TEMP "nssm-extract"
     Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip -UseBasicParsing
-    Expand-Archive -Path $NssmZip -DestinationPath $env:TEMP -Force
+    Expand-Archive -Path $NssmZip -DestinationPath $NssmExtract -Force
     New-Item -ItemType Directory -Force -Path $NssmDir | Out-Null
-    Copy-Item (Join-Path $env:TEMP "nssm-2.24\win64\nssm.exe") $NssmExe -Force
-    Remove-Item $NssmZip -Force
-    Remove-Item (Join-Path $env:TEMP "nssm-2.24") -Recurse -Force
+    Copy-Item (Join-Path $NssmExtract "nssm-2.24\win64\nssm.exe") $NssmExe -Force
+    Remove-Item $NssmZip    -Force
+    Remove-Item $NssmExtract -Recurse -Force
     Write-Ok "NSSM downloaded"
 } else {
     Write-Ok "NSSM already present"
@@ -175,7 +199,7 @@ if (-not (Test-Path $NssmExe)) {
 # Remove existing service if present
 $ExistingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($ExistingService) {
-    Write-Info "Removing existing service..."
+    Write-Info "Removing existing service registration..."
     if ($ExistingService.Status -eq "Running") {
         & $NssmExe stop $ServiceName confirm | Out-Null
     }
@@ -190,50 +214,58 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $WebConfigPy = Join-Path $InstallDir "web_config.py"
 Write-Info "Installing service '$ServiceName'..."
 & $NssmExe install $ServiceName $PythonExe $WebConfigPy
-& $NssmExe set $ServiceName AppDirectory      $InstallDir
+& $NssmExe set $ServiceName AppDirectory       $InstallDir
 & $NssmExe set $ServiceName AppEnvironmentExtra "BRIJJ_HOST=$BindHost" "BRIJJ_PORT=$Port" "PYTHONUNBUFFERED=1"
-& $NssmExe set $ServiceName Start             SERVICE_AUTO_START
-& $NssmExe set $ServiceName AppStdout         (Join-Path $LogDir "brijjdata.log")
-& $NssmExe set $ServiceName AppStderr         (Join-Path $LogDir "brijjdata.log")
-& $NssmExe set $ServiceName AppRotateFiles    1
-& $NssmExe set $ServiceName AppRotateBytes    10485760   # 10 MB
-& $NssmExe set $ServiceName DisplayName       "BrijjData Configuration UI"
-& $NssmExe set $ServiceName Description       "BrijjData ingest and configuration web interface"
+& $NssmExe set $ServiceName Start              SERVICE_AUTO_START
+& $NssmExe set $ServiceName AppStdout          (Join-Path $LogDir "brijjdata.log")
+& $NssmExe set $ServiceName AppStderr          (Join-Path $LogDir "brijjdata.log")
+& $NssmExe set $ServiceName AppRotateFiles     1
+& $NssmExe set $ServiceName AppRotateBytes     10485760
+& $NssmExe set $ServiceName DisplayName        "BrijjData Configuration UI"
+& $NssmExe set $ServiceName Description        "BrijjData ingest and configuration web interface"
 Write-Ok "Service installed"
 
-# ── Start service ─────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Management helper scripts
+# ---------------------------------------------------------------------------
+$StartBat = "@echo off`r`nnet start $ServiceName`r`npause`r`n"
+$StopBat  = "@echo off`r`nnet stop $ServiceName`r`npause`r`n"
+[System.IO.File]::WriteAllText((Join-Path $InstallDir "start.bat"), $StartBat)
+[System.IO.File]::WriteAllText((Join-Path $InstallDir "stop.bat"),  $StopBat)
+
+# ---------------------------------------------------------------------------
+# Start service
+# ---------------------------------------------------------------------------
 Write-Header "Starting service"
-$ConfigHasPlaceholder = (Get-Content $ConfigFile -Raw) -match "YOUR_SQL_SERVER_HOST"
-if ($ConfigHasPlaceholder) {
-    Write-Warn "Service NOT started — config.ini still has placeholder values."
-    Write-Warn "Edit $ConfigFile then run:  Start-Service $ServiceName"
+$ConfigContent = Get-Content $ConfigFile -Raw
+if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
+    Write-Warn "Service NOT started - config.ini still has placeholder values."
+    Write-Warn "Edit $ConfigFile then run:  net start $ServiceName"
 } else {
     Start-Service $ServiceName
     Write-Ok "Service started"
 }
 
-# ── Create management scripts ─────────────────────────────────────────────────
-Set-Content (Join-Path $InstallDir "start.bat") "@echo off`r`nnet start $ServiceName`r`n"
-Set-Content (Join-Path $InstallDir "stop.bat")  "@echo off`r`nnet stop $ServiceName`r`n"
-
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
 $IP = (Get-NetIPAddress -AddressFamily IPv4 |
        Where-Object { $_.InterfaceAlias -notmatch "Loopback" } |
        Select-Object -First 1).IPAddress
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║     BrijjIngest — Installation Complete      ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "+----------------------------------------------+" -ForegroundColor Cyan
+Write-Host "|    BrijjIngest - Installation Complete       |" -ForegroundColor Cyan
+Write-Host "+----------------------------------------------+" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Install dir : $InstallDir"
 Write-Host "  Config file : $ConfigFile"
 Write-Host "  Log file    : $(Join-Path $LogDir 'brijjdata.log')"
-Write-Host "  Service     : $ServiceName  (net start|stop $ServiceName)"
+Write-Host "  Service     : $ServiceName  (net start/stop $ServiceName)"
 Write-Host "  Web UI      : " -NoNewline
 Write-Host "http://${IP}:${Port}" -ForegroundColor Green
 Write-Host ""
-if ($ConfigHasPlaceholder) {
+if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
     Write-Host "  Next step: edit config.ini with your credentials," -ForegroundColor Yellow
     Write-Host "  then run:  net start $ServiceName" -ForegroundColor Yellow
 }
