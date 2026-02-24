@@ -273,6 +273,19 @@ $StopBat  = "@echo off`r`nnet stop $ServiceName`r`npause`r`n"
 [System.IO.File]::WriteAllText((Join-Path $InstallDir "stop.bat"),  $StopBat)
 
 # ---------------------------------------------------------------------------
+# Windows Firewall rule
+# ---------------------------------------------------------------------------
+Write-Header "Configuring Windows Firewall"
+$RuleName = "BrijjData Web UI"
+$ExistingRule = Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue
+if ($ExistingRule) {
+    Remove-NetFirewallRule -DisplayName $RuleName
+}
+New-NetFirewallRule -DisplayName $RuleName `
+    -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port | Out-Null
+Write-Ok "Firewall rule added for port $Port"
+
+# ---------------------------------------------------------------------------
 # Start service
 # ---------------------------------------------------------------------------
 Write-Header "Starting service"
@@ -282,7 +295,14 @@ if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
     Write-Warn "Edit $ConfigFile then run:  net start $ServiceName"
 } else {
     & $WinSwExe start
-    Write-Ok "Service started"
+    Start-Sleep -Seconds 2
+    $Svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($Svc -and $Svc.Status -eq "Running") {
+        Write-Ok "Service started"
+    } else {
+        Write-Warn "Service did not start. Check the log for errors:"
+        Write-Warn "  $LogDir\brijjdata.out.log"
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -299,13 +319,17 @@ Write-Host "+----------------------------------------------+" -ForegroundColor C
 Write-Host ""
 Write-Host "  Install dir : $InstallDir"
 Write-Host "  Config file : $ConfigFile"
-Write-Host "  Log file    : $(Join-Path $LogDir 'brijjdata.log')"
-Write-Host "  Service     : $ServiceName  (net start $ServiceName / net stop $ServiceName)"
+Write-Host "  Log file    : $LogDir\brijjdata.out.log"
+Write-Host "  Service     : net start $ServiceName / net stop $ServiceName"
 Write-Host "  Web UI      : " -NoNewline
 Write-Host "http://${IP}:${Port}" -ForegroundColor Green
 Write-Host ""
 if ($ConfigContent -match "YOUR_SQL_SERVER_HOST") {
-    Write-Host "  Next step: edit config.ini with your credentials," -ForegroundColor Yellow
-    Write-Host "  then run:  net start $ServiceName" -ForegroundColor Yellow
+    Write-Host "  Next step:" -ForegroundColor Yellow
+    Write-Host "    1. Edit $ConfigFile" -ForegroundColor Yellow
+    Write-Host "    2. Run:  net start $ServiceName" -ForegroundColor Yellow
+} else {
+    Write-Host "  If the UI is not reachable, check the log:" -ForegroundColor Yellow
+    Write-Host "    type $LogDir\brijjdata.out.log" -ForegroundColor Yellow
 }
 Write-Host ""
