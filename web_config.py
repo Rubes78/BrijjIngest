@@ -355,6 +355,93 @@ def ingest_stream(job_id):
     )
 
 
+# ── Reports ───────────────────────────────────────────────────────────────────
+
+def run_report_query(cfg, company_id, sql, params=()):
+    """Run a query against a company database. Returns (columns, rows) or raises."""
+    db      = get_section(cfg, "database")
+    srv     = db.get("server", "")
+    prt     = db.get("port", "1433")
+    usr     = db.get("user", "")
+    pwd     = db.get("password", "")
+    db_name = ""
+    for sec in cfg.sections():
+        if sec == f"company:{company_id}":
+            db_name = cfg[sec].get("db_name", "")
+            break
+    if not srv or not db_name:
+        raise ValueError("Database not configured.")
+    conn = pyodbc.connect(
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={srv},{prt};DATABASE={db_name};"
+        f"UID={usr};PWD={pwd};TrustServerCertificate=yes;",
+        timeout=10, autocommit=True,
+    )
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    columns = [d[0] for d in cur.description]
+    rows    = cur.fetchall()
+    conn.close()
+    return columns, rows
+
+
+@app.route("/reports/items-produced", methods=["GET"])
+def report_items_produced():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    # Form inputs
+    company_id = request.args.get("company_id", "")
+    start_date = request.args.get("start_date", "")
+    end_date   = request.args.get("end_date", "")
+    group_by   = request.args.get("group_by", "department")
+
+    VALID_GROUPS = {
+        "department":       ("department",         "Department"),
+        "category":         ("categoryName",       "Category"),
+        "subcategory":      ("subcategoryName",    "Subcategory"),
+        "quality":          ("qualityDescr",       "Quality"),
+        "condition":        ("conditionDescr",     "Condition"),
+        "producingstore":   ("productionStoreName","Production Store"),
+        "processorname":    ("processorName",      "Processor"),
+        "productioncycle":  ("productionCycle",    "Production Cycle"),
+    }
+    group_col, group_label = VALID_GROUPS.get(group_by, ("department", "Department"))
+
+    columns, rows, error = [], [], None
+
+    if company_id and start_date and end_date:
+        try:
+            sql = f"""
+                SELECT
+                    ISNULL([{group_col}], '(none)') AS group_label,
+                    COUNT(*)                 AS item_count,
+                    SUM(qtyProduced)         AS total_qty,
+                    AVG(price)               AS avg_price,
+                    SUM(price * qtyProduced) AS total_value
+                FROM rcs_items
+                WHERE CAST(lastUpdatedDt AS DATE) >= ? AND CAST(lastUpdatedDt AS DATE) <= ?
+                GROUP BY [{group_col}]
+                ORDER BY total_qty DESC
+            """
+            columns, rows = run_report_query(cfg, company_id, sql, (start_date, end_date))
+        except Exception as e:
+            error = str(e)
+
+    return render_template(
+        "report_items_produced.html",
+        companies=companies,
+        company_id=company_id,
+        start_date=start_date,
+        end_date=end_date,
+        group_by=group_by,
+        group_label=group_label,
+        columns=columns,
+        rows=rows,
+        error=error,
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -96,6 +96,8 @@
     <a href="/database" class="{{ 'active' if request.path == '/database' }}"><i class="bi bi-server"></i> Database</a>
     <a href="/apis" class="{{ 'active' if request.path == '/apis' }}"><i class="bi bi-cloud-arrow-up"></i> API Endpoints</a>
     <a href="/companies" class="{{ 'active' if request.path.startswith('/compan') }}"><i class="bi bi-building"></i> Companies</a>
+    <div class="section-label">Reports</div>
+    <a href="/reports/items-produced" class="{{ 'active' if request.path.startswith('/reports') }}"><i class="bi bi-bar-chart-line"></i> Items Produced</a>
   </nav>
 </div>
 

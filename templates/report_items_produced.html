@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Items Produced{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h1><i class="bi bi-bar-chart-line me-2 text-primary"></i>Items Produced</h1>
+</div>
+
+<!-- Filter form -->
+<div class="card mb-4">
+  <div class="card-header">Filters</div>
+  <div class="card-body">
+    <form method="get" action="/reports/items-produced" class="row g-3 align-items-end">
+
+      <div class="col-md-3">
+        <label class="form-label">Company</label>
+        <select name="company_id" class="form-select" required>
+          <option value="">-- select --</option>
+          {% for c in companies %}
+            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">Start Date</label>
+        <input type="date" name="start_date" class="form-control"
+               value="{{ start_date }}" required>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">End Date</label>
+        <input type="date" name="end_date" class="form-control"
+               value="{{ end_date }}" required>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Group By</label>
+        <select name="group_by" class="form-select">
+          {% set groups = [
+              ('department',      'Department'),
+              ('category',        'Category'),
+              ('subcategory',     'Subcategory'),
+              ('quality',         'Quality'),
+              ('condition',       'Condition'),
+              ('producingstore',  'Production Store'),
+              ('processorname',   'Processor'),
+              ('productioncycle', 'Production Cycle'),
+          ] %}
+          {% for val, label in groups %}
+            <option value="{{ val }}" {{ 'selected' if group_by == val }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-search me-1"></i>Run Report
+        </button>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+  </div>
+{% elif rows %}
+
+  <!-- Summary bar -->
+  {% set total_items = rows | sum(attribute=1) %}
+  {% set total_qty   = rows | sum(attribute=2) %}
+  <div class="row g-3 mb-3">
+    <div class="col-sm-4">
+      <div class="card text-center py-3">
+        <div class="fs-4 fw-bold text-primary">{{ '{:,}'.format(rows | length) }}</div>
+        <div class="text-muted small">Groups</div>
+      </div>
+    </div>
+    <div class="col-sm-4">
+      <div class="card text-center py-3">
+        <div class="fs-4 fw-bold text-primary">{{ '{:,}'.format(total_items) }}</div>
+        <div class="text-muted small">Total Items</div>
+      </div>
+    </div>
+    <div class="col-sm-4">
+      <div class="card text-center py-3">
+        <div class="fs-4 fw-bold text-primary">{{ '{:,}'.format(total_qty) }}</div>
+        <div class="text-muted small">Total Qty Produced</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <span>Results — {{ rows | length }} group{{ 's' if rows | length != 1 }}</span>
+      <span class="text-muted small">{{ company_id }} &nbsp;|&nbsp; {{ start_date }} to {{ end_date }}</span>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>{{ group_label }}</th>
+            <th class="text-end">Item Count</th>
+            <th class="text-end">Qty Produced</th>
+            <th class="text-end">Avg Price</th>
+            <th class="text-end">Total Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row[0] }}</td>
+            <td class="text-end">{{ '{:,}'.format(row[1]) }}</td>
+            <td class="text-end">{{ '{:,}'.format(row[2]) if row[2] is not none else '—' }}</td>
+            <td class="text-end">{{ '${:,.2f}'.format(row[3]) if row[3] is not none else '—' }}</td>
+            <td class="text-end">{{ '${:,.2f}'.format(row[4]) if row[4] is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td>Total</td>
+            <td class="text-end">{{ '{:,}'.format(total_items) }}</td>
+            <td class="text-end">{{ '{:,}'.format(total_qty) }}</td>
+            <td class="text-end">—</td>
+            <td class="text-end">
+              {% set total_value = rows | sum(attribute=4) %}
+              {{ '${:,.2f}'.format(total_value) if total_value is not none else '—' }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No data found for the selected filters.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-bar-chart-line fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company and date range above, then click <strong>Run Report</strong>.</p>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}
