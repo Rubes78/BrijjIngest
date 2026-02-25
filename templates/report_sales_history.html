@@ -73,13 +73,20 @@
         <input type="hidden" name="cashier" value="{{ cashier }}">
       {% endif %}
 
+      <div class="col-md-auto">
+        <label class="form-label d-block">&nbsp;</label>
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-search me-1"></i>Run Report
+        </button>
+      </div>
+
       <div class="col-12 col-md-auto">
         <label class="form-label d-block">Search</label>
         <div class="input-group">
           <input type="text" name="search" class="form-control"
                  placeholder="Ref # or customer name…" value="{{ search }}"
                  style="min-width:200px">
-          <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
+          <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
           {% if search or sales_type or payment_status %}
             <a href="/reports/sales-history?{{ filter_qs_no_cust }}{% if customer_id %}&customer_id={{ customer_id }}{% endif %}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
                class="btn btn-outline-secondary"><i class="bi bi-x"></i></a>
