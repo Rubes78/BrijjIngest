@@ -590,40 +590,98 @@ def report_sell_through():
     if company_id and start_date and end_date:
         try:
             # Summary — overall sell-through metrics for the production date range.
-            # RCS items are joined to TPM sales via department+category = tpmProductName.
+            # RCS items join to TPM sales via department+category = tpmProductName.
+            # Avg days to sell uses FIFO: cumulative production slots matched to
+            # cumulative sales slots ordered by date; overlap qty weighted average.
             summary_sql = """
-                WITH rcs AS (
+                WITH prod_by_date AS (
                     SELECT
                         r.department + ' - ' + r.categoryName AS category,
-                        ISNULL(SUM(r.qtyProduced), 0)          AS qty_produced
+                        CAST(r.lastUpdatedDt AS DATE)          AS prod_date,
+                        SUM(r.qtyProduced)                     AS batch_qty
                     FROM rcs_items r
                     WHERE CAST(r.lastUpdatedDt AS DATE) >= ?
                       AND CAST(r.lastUpdatedDt AS DATE) <= ?
-                    GROUP BY r.department + ' - ' + r.categoryName
+                    GROUP BY r.department + ' - ' + r.categoryName,
+                             CAST(r.lastUpdatedDt AS DATE)
                 ),
-                sales AS (
+                prod_cum AS (
+                    SELECT
+                        category, prod_date, batch_qty,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY prod_date
+                                             ROWS UNBOUNDED PRECEDING) AS cum_end,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY prod_date
+                                             ROWS UNBOUNDED PRECEDING) - batch_qty AS cum_start
+                    FROM prod_by_date
+                ),
+                prod_totals AS (
+                    SELECT category, SUM(batch_qty) AS qty_produced
+                    FROM prod_by_date GROUP BY category
+                ),
+                sold_by_date AS (
                     SELECT
                         soi.tpmProductName   AS category,
-                        SUM(soi.quantity)    AS qty_sold,
-                        SUM(soi.totalAmount) AS revenue
+                        o.date               AS sale_date,
+                        SUM(soi.quantity)    AS batch_qty,
+                        SUM(soi.totalAmount) AS batch_revenue
                     FROM sales_order_items soi
                     JOIN sales_orders o ON o.salesOrderId = soi.salesOrderId
                     WHERE o.date >= ?
                       AND o.date <= ?
                       AND soi.tpmProductId IS NOT NULL
-                    GROUP BY soi.tpmProductName
+                    GROUP BY soi.tpmProductName, o.date
+                ),
+                sold_cum AS (
+                    SELECT
+                        category, sale_date, batch_qty, batch_revenue,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY sale_date
+                                             ROWS UNBOUNDED PRECEDING) AS cum_end,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY sale_date
+                                             ROWS UNBOUNDED PRECEDING) - batch_qty AS cum_start
+                    FROM sold_by_date
+                ),
+                sold_totals AS (
+                    SELECT category,
+                           SUM(batch_qty)      AS qty_sold,
+                           SUM(batch_revenue)  AS revenue
+                    FROM sold_by_date GROUP BY category
+                ),
+                fifo AS (
+                    SELECT
+                        p.category,
+                        DATEDIFF(day, p.prod_date, s.sale_date) AS days,
+                        (CASE WHEN p.cum_end < s.cum_end THEN p.cum_end ELSE s.cum_end END)
+                        - (CASE WHEN p.cum_start > s.cum_start THEN p.cum_start ELSE s.cum_start END)
+                            AS overlap_qty
+                    FROM prod_cum p
+                    JOIN sold_cum s ON s.category = p.category
+                    WHERE p.cum_end > s.cum_start AND p.cum_start < s.cum_end
+                      AND s.sale_date >= p.prod_date   -- exclude pre-range inventory matches
+                ),
+                fifo_avg AS (
+                    SELECT
+                        category,
+                        CAST(SUM(CAST(days AS FLOAT) * overlap_qty)
+                             / NULLIF(SUM(overlap_qty), 0) AS DECIMAL(5,1)) AS avg_days,
+                        MIN(days) AS min_days,
+                        MAX(days) AS max_days
+                    FROM fifo GROUP BY category
                 )
                 SELECT
-                    SUM(r.qty_produced)        AS total_qty_produced,
-                    ISNULL(SUM(s.qty_sold), 0) AS total_qty_sold,
-                    SUM(r.qty_produced)        AS dup_qty_produced,
-                    ISNULL(SUM(s.qty_sold), 0) AS dup_qty_sold,
-                    ISNULL(SUM(s.revenue), 0)  AS total_revenue,
-                    NULL                       AS avg_days_to_sell,
-                    NULL                       AS min_days_to_sell,
-                    NULL                       AS max_days_to_sell
-                FROM rcs r
-                LEFT JOIN sales s ON s.category = r.category
+                    SUM(pt.qty_produced)                                                   AS total_qty_produced,
+                    ISNULL(SUM(st.qty_sold), 0)                                            AS total_qty_sold,
+                    SUM(pt.qty_produced)                                                   AS dup1,
+                    ISNULL(SUM(st.qty_sold), 0)                                            AS dup2,
+                    ISNULL(SUM(st.revenue), 0)                                             AS total_revenue,
+                    CAST(
+                        SUM(ISNULL(f.avg_days, 0) * ISNULL(st.qty_sold, 0)) /
+                        NULLIF(SUM(ISNULL(st.qty_sold, 0)), 0)
+                    AS DECIMAL(5,1))                                                        AS avg_days_to_sell,
+                    MIN(f.min_days)                                                         AS min_days_to_sell,
+                    MAX(f.max_days)                                                         AS max_days_to_sell
+                FROM prod_totals pt
+                LEFT JOIN sold_totals st ON st.category = pt.category
+                LEFT JOIN fifo_avg f     ON f.category  = pt.category
             """
             _, sum_rows = run_report_query(cfg, company_id, summary_sql,
                                            (start_date, end_date, start_date, end_date))
@@ -631,47 +689,101 @@ def report_sell_through():
                 summary = sum_rows[0]
 
             # Detail — grouped breakdown.
-            # Sales are pro-rated within each category by qty_produced share to avoid
-            # double-counting when grouping by quality, condition, processor, etc.
+            # Sales and avg-days are pro-rated within each category by qty_produced
+            # share to avoid double-counting when grouping by quality, condition, etc.
+            # Avg days uses the same FIFO logic, weighted by pro-rated qty_sold.
             detail_sql = f"""
-                WITH rcs_detail AS (
+                WITH prod_by_date AS (
                     SELECT
                         ISNULL(CAST(r.[{group_col}] AS NVARCHAR(255)), '(none)') AS group_val,
                         r.department + ' - ' + r.categoryName                     AS category,
-                        ISNULL(SUM(r.qtyProduced), 0)                             AS qty_produced
+                        CAST(r.lastUpdatedDt AS DATE)                             AS prod_date,
+                        SUM(r.qtyProduced)                                        AS batch_qty
                     FROM rcs_items r
                     WHERE CAST(r.lastUpdatedDt AS DATE) >= ?
                       AND CAST(r.lastUpdatedDt AS DATE) <= ?
-                    GROUP BY r.[{group_col}], r.department + ' - ' + r.categoryName
+                    GROUP BY r.[{group_col}],
+                             r.department + ' - ' + r.categoryName,
+                             CAST(r.lastUpdatedDt AS DATE)
+                ),
+                rcs_detail AS (
+                    SELECT group_val, category, SUM(batch_qty) AS qty_produced
+                    FROM prod_by_date GROUP BY group_val, category
                 ),
                 cat_totals AS (
                     SELECT category, SUM(qty_produced) AS cat_qty_total
-                    FROM rcs_detail
-                    GROUP BY category
+                    FROM rcs_detail GROUP BY category
                 ),
-                sales AS (
+                prod_cum AS (
+                    SELECT
+                        category, prod_date, batch_qty,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY prod_date
+                                             ROWS UNBOUNDED PRECEDING) AS cum_end,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY prod_date
+                                             ROWS UNBOUNDED PRECEDING) - batch_qty AS cum_start
+                    FROM (
+                        SELECT category, prod_date, SUM(batch_qty) AS batch_qty
+                        FROM prod_by_date GROUP BY category, prod_date
+                    ) cat_date
+                ),
+                sold_by_date AS (
                     SELECT
                         soi.tpmProductName   AS category,
-                        SUM(soi.quantity)    AS qty_sold,
-                        SUM(soi.totalAmount) AS revenue
+                        o.date               AS sale_date,
+                        SUM(soi.quantity)    AS batch_qty,
+                        SUM(soi.totalAmount) AS batch_revenue
                     FROM sales_order_items soi
                     JOIN sales_orders o ON o.salesOrderId = soi.salesOrderId
                     WHERE o.date >= ?
                       AND o.date <= ?
                       AND soi.tpmProductId IS NOT NULL
-                    GROUP BY soi.tpmProductName
+                    GROUP BY soi.tpmProductName, o.date
+                ),
+                sold_cum AS (
+                    SELECT
+                        category, sale_date, batch_qty, batch_revenue,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY sale_date
+                                             ROWS UNBOUNDED PRECEDING) AS cum_end,
+                        SUM(batch_qty) OVER (PARTITION BY category ORDER BY sale_date
+                                             ROWS UNBOUNDED PRECEDING) - batch_qty AS cum_start
+                    FROM sold_by_date
+                ),
+                sold_totals AS (
+                    SELECT category, SUM(batch_qty) AS qty_sold, SUM(batch_revenue) AS revenue
+                    FROM sold_by_date GROUP BY category
+                ),
+                fifo AS (
+                    SELECT
+                        p.category,
+                        DATEDIFF(day, p.prod_date, s.sale_date) AS days,
+                        (CASE WHEN p.cum_end < s.cum_end THEN p.cum_end ELSE s.cum_end END)
+                        - (CASE WHEN p.cum_start > s.cum_start THEN p.cum_start ELSE s.cum_start END)
+                            AS overlap_qty
+                    FROM prod_cum p
+                    JOIN sold_cum s ON s.category = p.category
+                    WHERE p.cum_end > s.cum_start AND p.cum_start < s.cum_end
+                      AND s.sale_date >= p.prod_date   -- exclude pre-range inventory matches
+                ),
+                fifo_avg AS (
+                    SELECT
+                        category,
+                        CAST(SUM(CAST(days AS FLOAT) * overlap_qty)
+                             / NULLIF(SUM(overlap_qty), 0) AS DECIMAL(5,1)) AS avg_days
+                    FROM fifo GROUP BY category
                 ),
                 allocated AS (
                     SELECT
                         r.group_val,
                         r.qty_produced,
-                        ISNULL(s.qty_sold * CAST(r.qty_produced AS FLOAT)
-                               / NULLIF(ct.cat_qty_total, 0), 0) AS qty_sold_alloc,
-                        ISNULL(s.revenue  * CAST(r.qty_produced AS FLOAT)
-                               / NULLIF(ct.cat_qty_total, 0), 0) AS revenue_alloc
+                        ISNULL(st.qty_sold * CAST(r.qty_produced AS FLOAT)
+                               / NULLIF(ct.cat_qty_total, 0), 0)   AS qty_sold_alloc,
+                        ISNULL(st.revenue  * CAST(r.qty_produced AS FLOAT)
+                               / NULLIF(ct.cat_qty_total, 0), 0)   AS revenue_alloc,
+                        f.avg_days                                   AS cat_avg_days
                     FROM rcs_detail r
-                    JOIN cat_totals ct ON ct.category = r.category
-                    LEFT JOIN sales s   ON s.category  = r.category
+                    JOIN cat_totals ct    ON ct.category = r.category
+                    LEFT JOIN sold_totals st ON st.category = r.category
+                    LEFT JOIN fifo_avg f      ON f.category  = r.category
                 )
                 SELECT
                     group_val                                                              AS group_label,
@@ -682,7 +794,10 @@ def report_sell_through():
                     ISNULL(CAST(
                         SUM(qty_sold_alloc) / NULLIF(CAST(SUM(qty_produced) AS FLOAT), 0) * 100
                     AS DECIMAL(5,1)), 0.0)                                                 AS sell_thru_pct,
-                    NULL                                                                   AS avg_days_to_sell,
+                    CAST(
+                        SUM(ISNULL(cat_avg_days, 0) * qty_sold_alloc) /
+                        NULLIF(SUM(qty_sold_alloc), 0)
+                    AS DECIMAL(5,1))                                                       AS avg_days_to_sell,
                     ISNULL(CAST(SUM(revenue_alloc) AS DECIMAL(12, 2)), 0)               AS revenue
                 FROM allocated
                 GROUP BY group_val
