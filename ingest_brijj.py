@@ -184,6 +184,59 @@ CREATE TABLE sales_payments (
 );
 """
 
+CREATE_TABLE_CUSTOMERS = """
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'customers')
+CREATE TABLE customers (
+    id                           INT PRIMARY KEY,
+    companyId                    INT,
+    firstName                    NVARCHAR(255),
+    lastName                     NVARCHAR(255),
+    email                        NVARCHAR(255),
+    phoneNumber                  NVARCHAR(100),
+    gender                       INT,
+    dateOfBirth                  DATE,
+    preferredLanguageId          INT,
+    homeStoreId                  INT,
+    homeStoreName                NVARCHAR(255),
+    note                         NVARCHAR(MAX),
+    allowToSendPromotionalEmails BIT,
+    accountBalanceOption         INT,
+    enableLoyaltyProgram         BIT,
+    externalId                   NVARCHAR(255),
+    createdAt                    DATETIMEOFFSET,
+    loyaltyPoints                DECIMAL(12, 4),
+    storeCredit                  DECIMAL(12, 4),
+    onAccountBalance             DECIMAL(12, 4),
+    enableTaxExemption           BIT,
+    taxExemptionId               NVARCHAR(255),
+    taxExemptionType             INT,
+    addressLine1                 NVARCHAR(255),
+    addressLine2                 NVARCHAR(255),
+    addressCity                  NVARCHAR(255),
+    addressZipCode               NVARCHAR(50),
+    addressStateName             NVARCHAR(255),
+    addressCountryName           NVARCHAR(255),
+    addressLatitude              DECIMAL(10, 7),
+    addressLongitude             DECIMAL(10, 7),
+    addressType                  INT,
+    ingested_at                  DATETIME2 DEFAULT GETDATE()
+);
+"""
+
+CREATE_TABLE_CUSTOMER_GROUPS = """
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'customer_groups')
+CREATE TABLE customer_groups (
+    groupId         INT          NOT NULL,
+    customerId      INT          NOT NULL,
+    groupName       NVARCHAR(255),
+    description     NVARCHAR(MAX),
+    companyId       INT,
+    groupCreatedAt  DATETIMEOFFSET,
+    ingested_at     DATETIME2 DEFAULT GETDATE(),
+    PRIMARY KEY (customerId, groupId)
+);
+"""
+
 # ── RCS SQL ───────────────────────────────────────────────────────────────────
 
 CREATE_TEMP_RCS = """
@@ -477,6 +530,98 @@ WHEN NOT MATCHED THEN INSERT (
 );
 """
 
+# ── Customers SQL ─────────────────────────────────────────────────────────────
+
+UPSERT_CUSTOMER = """
+MERGE customers AS target
+USING (VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+)) AS source (
+    id, companyId, firstName, lastName, email, phoneNumber,
+    gender, dateOfBirth, preferredLanguageId,
+    homeStoreId, homeStoreName, note,
+    allowToSendPromotionalEmails, accountBalanceOption, enableLoyaltyProgram,
+    externalId, createdAt, loyaltyPoints, storeCredit, onAccountBalance,
+    enableTaxExemption, taxExemptionId, taxExemptionType,
+    addressLine1, addressLine2, addressCity, addressZipCode,
+    addressStateName, addressCountryName, addressLatitude, addressLongitude
+)
+ON target.id = source.id
+WHEN MATCHED THEN UPDATE SET
+    companyId                    = source.companyId,
+    firstName                    = source.firstName,
+    lastName                     = source.lastName,
+    email                        = source.email,
+    phoneNumber                  = source.phoneNumber,
+    gender                       = source.gender,
+    dateOfBirth                  = source.dateOfBirth,
+    preferredLanguageId          = source.preferredLanguageId,
+    homeStoreId                  = source.homeStoreId,
+    homeStoreName                = source.homeStoreName,
+    note                         = source.note,
+    allowToSendPromotionalEmails = source.allowToSendPromotionalEmails,
+    accountBalanceOption         = source.accountBalanceOption,
+    enableLoyaltyProgram         = source.enableLoyaltyProgram,
+    externalId                   = source.externalId,
+    createdAt                    = source.createdAt,
+    loyaltyPoints                = source.loyaltyPoints,
+    storeCredit                  = source.storeCredit,
+    onAccountBalance             = source.onAccountBalance,
+    enableTaxExemption           = source.enableTaxExemption,
+    taxExemptionId               = source.taxExemptionId,
+    taxExemptionType             = source.taxExemptionType,
+    addressLine1                 = source.addressLine1,
+    addressLine2                 = source.addressLine2,
+    addressCity                  = source.addressCity,
+    addressZipCode               = source.addressZipCode,
+    addressStateName             = source.addressStateName,
+    addressCountryName           = source.addressCountryName,
+    addressLatitude              = source.addressLatitude,
+    addressLongitude             = source.addressLongitude,
+    ingested_at                  = GETDATE()
+WHEN NOT MATCHED THEN INSERT (
+    id, companyId, firstName, lastName, email, phoneNumber,
+    gender, dateOfBirth, preferredLanguageId,
+    homeStoreId, homeStoreName, note,
+    allowToSendPromotionalEmails, accountBalanceOption, enableLoyaltyProgram,
+    externalId, createdAt, loyaltyPoints, storeCredit, onAccountBalance,
+    enableTaxExemption, taxExemptionId, taxExemptionType,
+    addressLine1, addressLine2, addressCity, addressZipCode,
+    addressStateName, addressCountryName, addressLatitude, addressLongitude
+) VALUES (
+    source.id, source.companyId, source.firstName, source.lastName,
+    source.email, source.phoneNumber, source.gender, source.dateOfBirth,
+    source.preferredLanguageId, source.homeStoreId, source.homeStoreName, source.note,
+    source.allowToSendPromotionalEmails, source.accountBalanceOption, source.enableLoyaltyProgram,
+    source.externalId, source.createdAt, source.loyaltyPoints, source.storeCredit,
+    source.onAccountBalance, source.enableTaxExemption, source.taxExemptionId, source.taxExemptionType,
+    source.addressLine1, source.addressLine2, source.addressCity, source.addressZipCode,
+    source.addressStateName, source.addressCountryName, source.addressLatitude, source.addressLongitude
+);
+"""
+
+UPSERT_CUSTOMER_GROUP = """
+MERGE customer_groups AS target
+USING (VALUES (?, ?, ?, ?, ?, ?)) AS source (
+    groupId, customerId, groupName, description, companyId, groupCreatedAt
+)
+ON target.customerId = source.customerId AND target.groupId = source.groupId
+WHEN MATCHED THEN UPDATE SET
+    groupName      = source.groupName,
+    description    = source.description,
+    companyId      = source.companyId,
+    groupCreatedAt = source.groupCreatedAt,
+    ingested_at    = GETDATE()
+WHEN NOT MATCHED THEN INSERT (
+    groupId, customerId, groupName, description, companyId, groupCreatedAt
+) VALUES (
+    source.groupId, source.customerId, source.groupName, source.description,
+    source.companyId, source.groupCreatedAt
+);
+"""
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def get_token(auth_base: str, company: dict) -> str:
@@ -643,6 +788,78 @@ def normalize_sales_payment(payment: dict, order_id: int) -> tuple:
         payment.get("amount"),
     )
 
+# ── Customers ──────────────────────────────────────────────────────────────────
+
+def fetch_customers_page(sales_base: str, token: str, company_int_id: int,
+                         page: int, page_size: int) -> dict:
+    resp = requests.get(
+        f"{sales_base}/Customers",
+        params={"CompanyId": company_int_id, "PageNumber": page, "PageSize": page_size},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def normalize_customer(c: dict) -> tuple:
+    addr = c.get("address") or {}
+    home = c.get("homeStore") or {}
+    return (
+        c.get("id"),
+        c.get("companyId"),
+        c.get("firstName"),
+        c.get("lastName"),
+        c.get("email"),
+        c.get("phoneNumber"),
+        c.get("gender"),
+        c.get("dateOfBirth"),
+        c.get("preferredLanguageId"),
+        c.get("homeStoreId"),
+        home.get("name") if home else None,
+        c.get("note"),
+        int(bool(c.get("allowToSendPromotionalEmails"))),
+        c.get("accountBalanceOption"),
+        int(bool(c.get("enableLoyaltyProgram"))),
+        c.get("externalId"),
+        c.get("createdAt"),
+        c.get("loyaltyPoints"),
+        c.get("storeCredit"),
+        c.get("onAccountBalance"),
+        int(bool(c.get("enableTaxExemption"))),
+        c.get("taxExemptionId"),
+        c.get("taxExemptionType"),
+        addr.get("line1"),
+        addr.get("line2"),
+        addr.get("city"),
+        addr.get("zipCode"),
+        addr.get("stateName"),
+        addr.get("countryName"),
+        addr.get("latitude"),
+        addr.get("longitude"),
+    )
+
+
+def upsert_customers_page(conn, customers: list) -> dict:
+    cur = conn.cursor()
+    counts = {"customers": 0, "groups": 0}
+    for c in customers:
+        cur.execute(UPSERT_CUSTOMER, normalize_customer(c))
+        counts["customers"] += cur.rowcount
+        for grp in c.get("customerGroups") or []:
+            cur.execute(UPSERT_CUSTOMER_GROUP, (
+                grp.get("id"),
+                c.get("id"),
+                grp.get("name"),
+                grp.get("description"),
+                grp.get("companyId"),
+                grp.get("createdAt"),
+            ))
+            counts["groups"] += cur.rowcount
+    conn.commit()
+    cur.close()
+    return counts
+
 # ── DB ────────────────────────────────────────────────────────────────────────
 
 def get_connection(cfg: configparser.ConfigParser, database: str = "master"):
@@ -674,7 +891,8 @@ def ensure_database(cfg: configparser.ConfigParser, db_name: str):
 def ensure_tables(conn):
     cur = conn.cursor()
     for ddl in [CREATE_TABLE_RCS, CREATE_TABLE_SALES_ORDERS,
-                CREATE_TABLE_SALES_ITEMS, CREATE_TABLE_SALES_PAYMENTS]:
+                CREATE_TABLE_SALES_ITEMS, CREATE_TABLE_SALES_PAYMENTS,
+                CREATE_TABLE_CUSTOMERS, CREATE_TABLE_CUSTOMER_GROUPS]:
         cur.execute(ddl)
     conn.commit()
     cur.close()
@@ -848,6 +1066,35 @@ def main():
             print(f"  Done — {pages_fetched} page(s) fetched, "
                   f"{totals['orders']} orders, {totals['items']} items, "
                   f"{totals['payments']} payments", flush=True)
+
+        except requests.HTTPError as e:
+            print(f"  API ERROR: {e}")
+        except Exception as e:
+            print(f"  ERROR: {e}")
+
+        # ── Customers ─────────────────────────────────────────────────────────
+        print(f"\n[{cid}] Fetching Customers (paginated)...", flush=True)
+        try:
+            print(f"  Authenticating...", flush=True)
+            token  = get_token(auth_base, company)
+            int_id = company["companyIntId"]
+
+            first_c      = fetch_customers_page(sales_base, token, int_id, 1, page_size)
+            total_count  = first_c["totalCount"]
+            total_pages  = math.ceil(total_count / page_size)
+            print(f"  {total_count} total customers across {total_pages} pages", flush=True)
+
+            totals = {"customers": 0, "groups": 0}
+            for page in range(1, total_pages + 1):
+                print(f"  Fetching page {page}/{total_pages}...", flush=True)
+                data      = first_c if page == 1 else fetch_customers_page(sales_base, token, int_id, page, page_size)
+                customers = data["items"]
+                counts    = upsert_customers_page(conn, customers)
+                totals["customers"] += counts["customers"]
+                totals["groups"]    += counts["groups"]
+                print(f"    → {len(customers)} customers, groups:{counts['groups']}", flush=True)
+
+            print(f"  Done — {totals['customers']} customers, {totals['groups']} group memberships", flush=True)
 
         except requests.HTTPError as e:
             print(f"  API ERROR: {e}")
