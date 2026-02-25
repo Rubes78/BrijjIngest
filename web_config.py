@@ -112,6 +112,11 @@ def get_company_stats(cfg: configparser.ConfigParser, companies: list) -> dict:
 
 @app.route("/")
 def index():
+    return redirect(url_for("report_dashboard"))
+
+
+@app.route("/config")
+def config_overview():
     cfg       = load_config()
     db        = get_section(cfg, "database")
     apis      = get_section(cfg, "apis")
