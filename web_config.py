@@ -880,6 +880,7 @@ def report_customers():
     company_id   = request.args.get("company_id", "")
     search       = request.args.get("search", "").strip()
     group_filter = request.args.get("group_filter", "").strip()
+    customer_id  = request.args.get("customer_id", "").strip()
     sort_by      = request.args.get("sort_by", "name")
     sort_dir     = "DESC" if request.args.get("sort_dir", "asc").lower() == "desc" else "ASC"
     page         = max(1, int(request.args.get("page", 1) or 1))
@@ -896,11 +897,13 @@ def report_customers():
         "company_id":   company_id,
         "search":       search,
         "group_filter": group_filter,
+        "customer_id":  customer_id,
     }.items() if v})
     sort_qs = urlencode({k: v for k, v in {
         "company_id":   company_id,
         "search":       search,
         "group_filter": group_filter,
+        "customer_id":  customer_id,
         "sort_by":      sort_by,
         "sort_dir":     sort_dir.lower(),
     }.items() if v})
@@ -920,6 +923,8 @@ def report_customers():
             available_groups = [r[0] for r in grp_rows]
 
             group_join  = "JOIN customer_groups cg2 ON cg2.customerId = c.id AND cg2.groupName = ?" if group_filter else ""
+            id_where    = "AND c.id = ?" if customer_id else ""
+            id_param    = (int(customer_id),) if customer_id else ()
             search_where = """(
                     ? = ''
                     OR ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') LIKE ?
@@ -931,10 +936,10 @@ def report_customers():
                 SELECT COUNT(DISTINCT c.id)
                 FROM customers c
                 {group_join}
-                WHERE {search_where}
+                WHERE {search_where} {id_where}
             """
             _, cnt_rows = run_report_query(cfg, company_id, count_sql,
-                                           group_params + (search, like, like, like))
+                                           group_params + (search, like, like, like) + id_param)
             total_count = cnt_rows[0][0] if cnt_rows else 0
 
             list_sql = f"""
@@ -962,7 +967,7 @@ def report_customers():
                 FROM customers c
                 {group_join}
                 LEFT JOIN customer_groups cg ON cg.customerId = c.id
-                WHERE {search_where}
+                WHERE {search_where} {id_where}
                 GROUP BY
                     c.id, c.firstName, c.lastName, c.email, c.phoneNumber,
                     c.loyaltyPoints, c.storeCredit, c.onAccountBalance, c.createdAt,
@@ -974,7 +979,7 @@ def report_customers():
                 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
             """
             _, rows = run_report_query(cfg, company_id, list_sql,
-                                       group_params + (search, like, like, like, offset, page_size))
+                                       group_params + (search, like, like, like) + id_param + (offset, page_size))
         except Exception as e:
             error = str(e)
 
@@ -986,6 +991,7 @@ def report_customers():
         company_id=company_id,
         search=search,
         group_filter=group_filter,
+        customer_id=customer_id,
         available_groups=available_groups,
         sort_by=sort_by,
         sort_dir=sort_dir.lower(),
@@ -1024,6 +1030,7 @@ def report_sales_history():
     sales_type     = request.args.get("sales_type",     "").strip()
     payment_status = request.args.get("payment_status", "").strip()
     search         = request.args.get("search", "").strip()
+    customer_id    = request.args.get("customer_id", "").strip()
     sort_by        = request.args.get("sort_by", "date")
     sort_dir       = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
     page           = max(1, int(request.args.get("page", 1) or 1))
@@ -1042,6 +1049,15 @@ def report_sales_history():
         "sales_type":     sales_type,
         "payment_status": payment_status,
         "search":         search,
+        "customer_id":    customer_id,
+    }.items() if v})
+    filter_qs_no_cust = urlencode({k: v for k, v in {
+        "company_id":     company_id,
+        "start_date":     start_date,
+        "end_date":       end_date,
+        "sales_type":     sales_type,
+        "payment_status": payment_status,
+        "search":         search,
     }.items() if v})
     sort_qs = urlencode({k: v for k, v in {
         "company_id":     company_id,
@@ -1050,6 +1066,7 @@ def report_sales_history():
         "sales_type":     sales_type,
         "payment_status": payment_status,
         "search":         search,
+        "customer_id":    customer_id,
         "sort_by":        sort_by,
         "sort_dir":       sort_dir.lower(),
     }.items() if v})
@@ -1087,6 +1104,9 @@ def report_sales_history():
                     OR ISNULL(o.customerFirstName,'') + ' ' + ISNULL(o.customerLastName,'') LIKE ?
                 )""")
                 where_params.extend([like, like])
+            if customer_id:
+                where_parts.append("o.customerId = ?")
+                where_params.append(int(customer_id))
 
             where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -1145,9 +1165,11 @@ def report_sales_history():
         available_sales_types=available_sales_types,
         available_payment_statuses=available_payment_statuses,
         search=search,
+        customer_id=customer_id,
         sort_by=sort_by,
         sort_dir=sort_dir.lower(),
         filter_qs=filter_qs,
+        filter_qs_no_cust=filter_qs_no_cust,
         sort_qs=sort_qs,
         page=page,
         page_size=page_size,

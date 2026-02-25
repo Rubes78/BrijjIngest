@@ -76,8 +76,11 @@
         </select>
       </div>
 
-      <input type="hidden" name="sort_by"  value="{{ sort_by }}">
-      <input type="hidden" name="sort_dir" value="{{ sort_dir }}">
+      <input type="hidden" name="sort_by"    value="{{ sort_by }}">
+      <input type="hidden" name="sort_dir"   value="{{ sort_dir }}">
+      {% if customer_id %}
+        <input type="hidden" name="customer_id" value="{{ customer_id }}">
+      {% endif %}
 
       <div class="col-12 col-md-auto">
         <label class="form-label d-block">Search</label>
@@ -87,7 +90,7 @@
                  style="min-width:200px">
           <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
           {% if search or sales_type or payment_status %}
-            <a href="/reports/sales-history?company_id={{ company_id }}&start_date={{ start_date }}&end_date={{ end_date }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
+            <a href="/reports/sales-history?{{ filter_qs_no_cust }}{% if customer_id %}&customer_id={{ customer_id }}{% endif %}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
                class="btn btn-outline-secondary"><i class="bi bi-x"></i></a>
           {% endif %}
         </div>
@@ -96,6 +99,17 @@
     </form>
   </div>
 </div>
+
+{% if customer_id %}
+<div class="alert alert-info d-flex align-items-center mb-4 py-2">
+  <i class="bi bi-person-fill me-2"></i>
+  <span>Filtered to customer ID <strong>{{ customer_id }}</strong></span>
+  <a href="/reports/sales-history?{{ filter_qs_no_cust }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
+     class="btn btn-sm btn-outline-secondary ms-auto">
+    <i class="bi bi-x me-1"></i>Clear customer filter
+  </a>
+</div>
+{% endif %}
 
 {% if error %}
   <div class="alert alert-danger">
@@ -257,7 +271,7 @@
     return `<span class="badge ${map[status] || 'bg-light text-muted border'}">${status || '—'}</span>`;
   }
 
-  function renderDetail(data) {
+  function renderDetail(data, companyId) {
     const { order, customer, items, payments } = data;
 
     // Update header
@@ -304,12 +318,13 @@
     // ── Customer ────────────────────────────────────────────────────────────
     if (customer && (customer.firstName || customer.lastName)) {
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+      const custUrl = `/reports/customers?company_id=${encodeURIComponent(companyId)}&customer_id=${encodeURIComponent(order.customerId)}`;
       html += `
         <div class="px-4 py-3 border-bottom">
           <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
           <div class="d-flex justify-content-between align-items-start">
             <div>
-              <div class="fw-semibold">${name}</div>
+              <div class="fw-semibold"><a href="${custUrl}" class="text-decoration-none">${name}</a></div>
               ${customer.email    ? `<div class="small text-muted"><i class="bi bi-envelope me-1"></i>${customer.email}</div>` : ''}
               ${customer.phoneNumber ? `<div class="small text-muted"><i class="bi bi-telephone me-1"></i>${customer.phoneNumber}</div>` : ''}
             </div>
@@ -321,10 +336,11 @@
         </div>`;
     } else if (order.customerFirstName || order.customerLastName) {
       const name = [order.customerFirstName, order.customerLastName].filter(Boolean).join(' ');
+      const custUrl = `/reports/customers?company_id=${encodeURIComponent(companyId)}&search=${encodeURIComponent(name)}`;
       html += `
         <div class="px-4 py-3 border-bottom">
           <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
-          <div class="fw-semibold">${name}</div>
+          <div class="fw-semibold"><a href="${custUrl}" class="text-decoration-none">${name}</a></div>
           <div class="small text-muted mt-1">
             <i class="bi bi-star me-1"></i>${fmt(order.customerLoyaltyPoints, 0)} pts &nbsp;|&nbsp;
             ${money(order.customerStoreCredit)} credit
@@ -443,7 +459,7 @@
         const resp = await fetch(`/api/order-detail?company_id=${encodeURIComponent(companyId)}&order_id=${encodeURIComponent(orderId)}`);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
-        renderDetail(data);
+        renderDetail(data, companyId);
       } catch (e) {
         detailBody.innerHTML = `<div class="alert alert-danger m-3"><i class="bi bi-exclamation-triangle me-2"></i>${e.message}</div>`;
       }

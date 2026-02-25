@@ -277,9 +277,16 @@
     </div>
 
     <!-- Meta -->
-    <div class="px-4 py-3">
+    <div class="px-4 py-3 border-bottom">
       <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Account Info</div>
       <div class="text-muted small" id="oc-meta"></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="px-4 py-3">
+      <a id="oc-sales-link" href="#" class="btn btn-outline-primary btn-sm w-100">
+        <i class="bi bi-clock-history me-2"></i>View Sales History
+      </a>
     </div>
 
   </div>
@@ -299,6 +306,8 @@
 
       document.getElementById('oc-name').textContent = fullName;
       document.getElementById('oc-id').textContent   = 'ID: ' + d.id + (d.external ? '  ·  Ext: ' + d.external : '');
+      document.getElementById('oc-sales-link').href  =
+        '/reports/sales-history?company_id={{ company_id }}&customer_id=' + encodeURIComponent(d.id);
 
       // Contact
       document.getElementById('oc-email').textContent = d.email || '—';
