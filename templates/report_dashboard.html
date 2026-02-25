@@ -2,21 +2,8 @@
 {% block title_suffix %} — Dashboard{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex align-items-center justify-content-between">
+<div class="page-header">
   <h1><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h1>
-
-  {% if companies %}
-  <form method="get" action="/reports/dashboard" class="d-flex align-items-center gap-2">
-    <label class="form-label mb-0 small text-muted">Company</label>
-    <select name="company_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
-      {% for c in companies %}
-        <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
-          {{ c.company_id }}
-        </option>
-      {% endfor %}
-    </select>
-  </form>
-  {% endif %}
 </div>
 
 {% if kpi_error %}
@@ -120,18 +107,11 @@
 </div>
 {% endif %}
 
-{% elif company_id %}
-  <div class="card">
-    <div class="card-body text-center py-5 text-muted">
-      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No sales data found for this company.</p>
-    </div>
-  </div>
 {% else %}
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-speedometer2 fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">Select a company above to view the dashboard.</p>
+      <p class="mb-0">No data available. Check that a company is enabled in Configuration.</p>
     </div>
   </div>
 {% endif %}

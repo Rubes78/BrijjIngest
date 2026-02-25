@@ -12,17 +12,6 @@
   <div class="card-body">
     <form method="get" action="/reports/returns" class="row g-3 align-items-end">
       <div class="col-md-2">
-        <label class="form-label">Company</label>
-        <select name="company_id" class="form-select" onchange="this.form.submit()">
-          <option value="">-- select --</option>
-          {% for c in companies %}
-            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
-              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
         <label class="form-label">From</label>
         <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
       </div>
@@ -112,7 +101,7 @@
               <td class="text-end text-muted small">{{ row[1] }}</td>
               <td class="text-end fw-semibold text-warning">${{ '{:,.2f}'.format(row[2]) }}</td>
               <td class="text-end">
-                <a href="/reports/sales-history?company_id={{ company_id }}&start_date={{ start_date }}&end_date={{ end_date }}&cashier={{ row[0] | urlencode }}&sales_type=ReturnOrder"
+                <a href="/reports/sales-history?start_date={{ start_date }}&end_date={{ end_date }}&cashier={{ row[0] | urlencode }}&sales_type=ReturnOrder"
                    class="btn btn-sm btn-outline-secondary" title="View return orders">
                   <i class="bi bi-clock-history"></i>
                 </a>
@@ -163,18 +152,11 @@
 
 </div>
 
-{% elif company_id %}
-  <div class="card">
-    <div class="card-body text-center py-5 text-muted">
-      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No data found for the selected period.</p>
-    </div>
-  </div>
 {% else %}
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-arrow-return-left fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">Select a company above to view returns analysis.</p>
+      <p class="mb-0">No data found for the selected period.</p>
     </div>
   </div>
 {% endif %}

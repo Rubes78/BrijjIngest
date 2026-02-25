@@ -90,6 +90,12 @@
 
 <div class="sidebar">
   <div class="brand"><i class="bi bi-database-fill-gear me-2" style="color:#4f9cf9"></i>Brijj<span>Data</span></div>
+  {% if active_company_id %}
+  <div style="background:#0d1117; padding:5px 22px 7px; border-bottom:1px solid #2d3748">
+    <div style="font-size:.65rem; color:#4a5568; text-transform:uppercase; letter-spacing:.08em">Active Company</div>
+    <div style="font-size:.85rem; color:#4f9cf9; font-weight:600">{{ active_company_id }}</div>
+  </div>
+  {% endif %}
   <nav>
     <div class="section-label">Reports</div>
     <a href="/reports/dashboard" class="{{ 'active' if request.path == '/reports/dashboard' }}"><i class="bi bi-speedometer2"></i> Dashboard</a>

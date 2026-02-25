@@ -33,18 +33,6 @@
   <div class="card-body">
     <form method="get" action="/reports/customers" class="row g-3 align-items-end">
 
-      <div class="col-md-2">
-        <label class="form-label">Company</label>
-        <select name="company_id" class="form-select" onchange="this.form.submit()">
-          <option value="">-- select --</option>
-          {% for c in companies %}
-            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
-              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-
       <div class="col-md-4">
         <label class="form-label">Search</label>
         <input type="text" name="search" class="form-control"
@@ -70,7 +58,7 @@
           <i class="bi bi-search me-1"></i>Apply
         </button>
         {% if search or group_filter %}
-          <a href="/reports/customers?company_id={{ company_id }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
+          <a href="/reports/customers?sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
              class="btn btn-outline-secondary">
             <i class="bi bi-x"></i>
           </a>
@@ -195,19 +183,11 @@
     {% endif %}
   </div>
 
-{% elif company_id %}
-  <div class="card">
-    <div class="card-body text-center py-5 text-muted">
-      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No customers found{% if search %} matching "<strong>{{ search }}</strong>"{% endif %}{% if group_filter %} in group "<strong>{{ group_filter }}</strong>"{% endif %}.</p>
-    </div>
-  </div>
-
 {% else %}
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">Select a company above to view customers.</p>
+      <p class="mb-0">No customers found{% if search %} matching "<strong>{{ search }}</strong>"{% endif %}{% if group_filter %} in group "<strong>{{ group_filter }}</strong>"{% endif %}.</p>
     </div>
   </div>
 {% endif %}
@@ -307,7 +287,7 @@
       document.getElementById('oc-name').textContent = fullName;
       document.getElementById('oc-id').textContent   = 'ID: ' + d.id + (d.external ? '  ·  Ext: ' + d.external : '');
       document.getElementById('oc-sales-link').href  =
-        '/reports/sales-history?company_id={{ company_id }}&customer_id=' + encodeURIComponent(d.id);
+        '/reports/sales-history?customer_id=' + encodeURIComponent(d.id);
 
       // Contact
       document.getElementById('oc-email').textContent = d.email || '—';

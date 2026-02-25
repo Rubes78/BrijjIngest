@@ -27,6 +27,14 @@ INGEST      = os.path.join(BASE_DIR, "ingest_brijj.py")
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+
+@app.context_processor
+def inject_active_company():
+    cfg = load_config()
+    co  = get_active_company(cfg)
+    return {"active_company_id": co["company_id"] if co else None}
+
+
 # ── Job store ─────────────────────────────────────────────────────────────────
 # jobs[job_id] = {"company_id": str, "status": "running|done|error",
 #                 "lines": [str], "queue": Queue}
@@ -50,6 +58,20 @@ def get_section(cfg, section, defaults=None) -> dict:
     if cfg.has_section(section):
         return dict(cfg[section])
     return defaults or {}
+
+
+def get_active_company(cfg) -> dict | None:
+    """Return the first enabled company with a db_name, or None."""
+    for section in cfg.sections():
+        if not section.startswith("company:"):
+            continue
+        sec = cfg[section]
+        if sec.get("enabled", "false").lower() == "true" and sec.get("db_name", "").strip():
+            return {
+                "company_id": sec.get("company_id", ""),
+                "db_name":    sec.get("db_name", ""),
+            }
+    return None
 
 
 def get_companies(cfg) -> list:
@@ -129,14 +151,9 @@ def config_overview():
 
 @app.route("/reports/dashboard", methods=["GET"])
 def report_dashboard():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    company_id = request.args.get("company_id", "")
-    if not company_id:
-        enabled = [c for c in companies if c["enabled"] and c["db_name"]]
-        if enabled:
-            company_id = enabled[0]["company_id"]
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
 
     kpis, top_categories, kpi_error = None, [], None
 
@@ -190,8 +207,6 @@ def report_dashboard():
             kpi_error = str(e)
 
     return render_template("report_dashboard.html",
-                           companies=companies,
-                           company_id=company_id,
                            kpis=kpis,
                            top_categories=top_categories,
                            kpi_error=kpi_error)
@@ -464,11 +479,9 @@ def run_report_query(cfg, company_id, sql, params=()):
 
 @app.route("/reports/items-produced", methods=["GET"])
 def report_items_produced():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    # Form inputs
-    company_id = request.args.get("company_id", "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
     start_date = request.args.get("start_date", "")
     end_date   = request.args.get("end_date", "")
     group_by   = request.args.get("group_by", "department")
@@ -487,7 +500,7 @@ def report_items_produced():
 
     columns, rows, error = [], [], None
 
-    if company_id and start_date and end_date:
+    if start_date and end_date:
         try:
             sql = f"""
                 SELECT
@@ -507,8 +520,6 @@ def report_items_produced():
 
     return render_template(
         "report_items_produced.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         group_by=group_by,
@@ -521,10 +532,9 @@ def report_items_produced():
 
 @app.route("/reports/sales", methods=["GET"])
 def report_sales():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    company_id = request.args.get("company_id", "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
     start_date = request.args.get("start_date", "")
     end_date   = request.args.get("end_date", "")
     group_by   = request.args.get("group_by", "date")
@@ -544,7 +554,7 @@ def report_sales():
 
     summary, rows, error = None, [], None
 
-    if company_id and start_date and end_date:
+    if start_date and end_date:
         try:
             # Summary — always runs; joins all 3 tables
             summary_sql = """
@@ -627,8 +637,6 @@ def report_sales():
 
     return render_template(
         "report_sales.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         group_by=group_by,
@@ -642,10 +650,9 @@ def report_sales():
 
 @app.route("/reports/sell-through", methods=["GET"])
 def report_sell_through():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    company_id = request.args.get("company_id", "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
     start_date = request.args.get("start_date", "")
     end_date   = request.args.get("end_date", "")
     group_by   = request.args.get("group_by", "department")
@@ -664,7 +671,7 @@ def report_sell_through():
 
     summary, rows, error = None, [], None
 
-    if company_id and start_date and end_date:
+    if start_date and end_date:
         try:
             # Summary — overall sell-through metrics for the production date range.
             # RCS items join to TPM sales via department+category = tpmProductName.
@@ -923,8 +930,6 @@ def report_sell_through():
 
     return render_template(
         "report_sell_through.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         group_by=group_by,
@@ -949,10 +954,9 @@ CUSTOMER_SORT_COLS = {
 
 @app.route("/reports/customers", methods=["GET"])
 def report_customers():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    company_id   = request.args.get("company_id", "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id   = active["company_id"] if active else ""
     search       = request.args.get("search", "").strip()
     group_filter = request.args.get("group_filter", "").strip()
     customer_id  = request.args.get("customer_id", "").strip()
@@ -969,13 +973,11 @@ def report_customers():
 
     # Query string fragments for building sort/page links in the template
     filter_qs = urlencode({k: v for k, v in {
-        "company_id":   company_id,
         "search":       search,
         "group_filter": group_filter,
         "customer_id":  customer_id,
     }.items() if v})
     sort_qs = urlencode({k: v for k, v in {
-        "company_id":   company_id,
         "search":       search,
         "group_filter": group_filter,
         "customer_id":  customer_id,
@@ -1062,8 +1064,6 @@ def report_customers():
 
     return render_template(
         "report_customers.html",
-        companies=companies,
-        company_id=company_id,
         search=search,
         group_filter=group_filter,
         customer_id=customer_id,
@@ -1093,8 +1093,9 @@ SALES_HISTORY_SORT_COLS = {
 
 @app.route("/reports/sales-history", methods=["GET"])
 def report_sales_history():
-    cfg       = load_config()
-    companies = get_companies(cfg)
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
 
     today      = datetime.date.today().isoformat()
     month_ago  = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
@@ -1119,7 +1120,6 @@ def report_sales_history():
     rows, total_count, available_sales_types, available_payment_statuses, error = [], 0, [], [], None
 
     filter_qs = urlencode({k: v for k, v in {
-        "company_id":     company_id,
         "start_date":     start_date,
         "end_date":       end_date,
         "sales_type":     sales_type,
@@ -1129,7 +1129,6 @@ def report_sales_history():
         "cashier":        cashier,
     }.items() if v})
     filter_qs_no_cust = urlencode({k: v for k, v in {
-        "company_id":     company_id,
         "start_date":     start_date,
         "end_date":       end_date,
         "sales_type":     sales_type,
@@ -1138,7 +1137,6 @@ def report_sales_history():
         "cashier":        cashier,
     }.items() if v})
     filter_qs_no_cashier = urlencode({k: v for k, v in {
-        "company_id":     company_id,
         "start_date":     start_date,
         "end_date":       end_date,
         "sales_type":     sales_type,
@@ -1147,7 +1145,6 @@ def report_sales_history():
         "customer_id":    customer_id,
     }.items() if v})
     sort_qs = urlencode({k: v for k, v in {
-        "company_id":     company_id,
         "start_date":     start_date,
         "end_date":       end_date,
         "sales_type":     sales_type,
@@ -1247,8 +1244,6 @@ def report_sales_history():
 
     return render_template(
         "report_sales_history.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         sales_type=sales_type,
@@ -1275,9 +1270,10 @@ def report_sales_history():
 
 @app.route("/api/order-detail")
 def api_order_detail():
-    cfg        = load_config()
-    company_id = request.args.get("company_id", "")
-    order_id   = request.args.get("order_id",   "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
+    order_id   = request.args.get("order_id", "")
 
     if not company_id or not order_id:
         return jsonify({"error": "Missing params"}), 400
@@ -1395,13 +1391,12 @@ CASHIER_SORT_COLS = {
 
 @app.route("/reports/cashier-performance", methods=["GET"])
 def report_cashier_performance():
-    cfg       = load_config()
-    companies = get_companies(cfg)
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
 
     today     = datetime.date.today().isoformat()
     month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-
-    company_id = request.args.get("company_id", "")
     start_date = request.args.get("start_date", month_ago)
     end_date   = request.args.get("end_date",   today)
     sort_by    = request.args.get("sort_by",  "revenue")
@@ -1413,7 +1408,6 @@ def report_cashier_performance():
 
     rows, error = [], None
     sort_qs = urlencode({k: v for k, v in {
-        "company_id": company_id,
         "start_date": start_date,
         "end_date":   end_date,
         "sort_by":    sort_by,
@@ -1446,8 +1440,6 @@ def report_cashier_performance():
             error = str(e)
 
     return render_template("report_cashier_performance.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         sort_by=sort_by,
@@ -1460,13 +1452,12 @@ def report_cashier_performance():
 
 @app.route("/reports/returns", methods=["GET"])
 def report_returns():
-    cfg       = load_config()
-    companies = get_companies(cfg)
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
 
     today     = datetime.date.today().isoformat()
     month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-
-    company_id = request.args.get("company_id", "")
     start_date = request.args.get("start_date", month_ago)
     end_date   = request.args.get("end_date",   today)
 
@@ -1520,8 +1511,6 @@ def report_returns():
             error = str(e)
 
     return render_template("report_returns.html",
-        companies=companies,
-        company_id=company_id,
         start_date=start_date,
         end_date=end_date,
         summary=summary,
@@ -1543,10 +1532,9 @@ RETENTION_SORT_COLS = {
 
 @app.route("/reports/customer-retention", methods=["GET"])
 def report_customer_retention():
-    cfg       = load_config()
-    companies = get_companies(cfg)
-
-    company_id  = request.args.get("company_id", "")
+    cfg    = load_config()
+    active = get_active_company(cfg)
+    company_id = active["company_id"] if active else ""
     lapsed_days = request.args.get("lapsed_days", "").strip()
     sort_by     = request.args.get("sort_by",  "spend")
     sort_dir    = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
@@ -1559,7 +1547,6 @@ def report_customer_retention():
 
     rows, total_count, error = [], 0, None
     sort_qs = urlencode({k: v for k, v in {
-        "company_id":  company_id,
         "lapsed_days": lapsed_days,
         "sort_by":     sort_by,
         "sort_dir":    sort_dir.lower(),
@@ -1608,8 +1595,6 @@ def report_customer_retention():
     total_pages = max(1, -(-total_count // page_size))
 
     return render_template("report_customer_retention.html",
-        companies=companies,
-        company_id=company_id,
         lapsed_days=lapsed_days,
         sort_by=sort_by,
         sort_dir=sort_dir.lower(),

@@ -12,18 +12,6 @@
   <div class="card-body">
     <form method="get" action="/reports/sell-through" class="row g-3 align-items-end">
 
-      <div class="col-md-3">
-        <label class="form-label">Company</label>
-        <select name="company_id" class="form-select" required>
-          <option value="">-- select --</option>
-          {% for c in companies %}
-            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
-              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-
       <div class="col-md-2">
         <label class="form-label">Production Start</label>
         <input type="date" name="start_date" class="form-control"
@@ -215,19 +203,11 @@
   </div>
   {% endif %}
 
-{% elif company_id %}
-  <div class="card">
-    <div class="card-body text-center py-5 text-muted">
-      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No data found for the selected filters.</p>
-    </div>
-  </div>
-
 {% else %}
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-graph-up-arrow fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">Select a company and production date range above, then click <strong>Run Report</strong>.</p>
+      <p class="mb-0">Select a production date range above, then click <strong>Run Report</strong>.</p>
     </div>
   </div>
 {% endif %}

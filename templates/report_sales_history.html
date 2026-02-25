@@ -33,18 +33,6 @@
     <form method="get" action="/reports/sales-history" class="row g-3 align-items-end">
 
       <div class="col-md-2">
-        <label class="form-label">Company</label>
-        <select name="company_id" class="form-select" onchange="this.form.submit()">
-          <option value="">-- select --</option>
-          {% for c in companies %}
-            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
-              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="col-md-2">
         <label class="form-label">From</label>
         <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
       </div>
@@ -165,8 +153,7 @@
                   [6]total [7]customerId [8]customerName [9]storeName [10]cashier
                   [11]itemCount [12]paymentMethods #}
           <tr class="sale-row" style="cursor:pointer"
-              data-order-id="{{ row[0] }}"
-              data-company-id="{{ company_id }}">
+              data-order-id="{{ row[0] }}">
             <td class="text-muted small">{{ row[1] }}</td>
             <td>
               <span class="font-monospace small">{{ row[2] or '#' ~ row[0] }}</span>
@@ -230,18 +217,11 @@
     {% endif %}
   </div>
 
-{% elif company_id %}
-  <div class="card">
-    <div class="card-body text-center py-5 text-muted">
-      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No orders found for the selected filters.</p>
-    </div>
-  </div>
 {% else %}
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-clock-history fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">Select a company above to view sales history.</p>
+      <p class="mb-0">No orders found for the selected filters.</p>
     </div>
   </div>
 {% endif %}
@@ -285,7 +265,7 @@
     return `<span class="badge ${map[status] || 'bg-light text-muted border'}">${status || '—'}</span>`;
   }
 
-  function renderDetail(data, companyId) {
+  function renderDetail(data) {
     const { order, customer, items, payments } = data;
 
     // Update header
@@ -332,7 +312,7 @@
     // ── Customer ────────────────────────────────────────────────────────────
     if (customer && (customer.firstName || customer.lastName)) {
       const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
-      const custUrl = `/reports/customers?company_id=${encodeURIComponent(companyId)}&customer_id=${encodeURIComponent(order.customerId)}`;
+      const custUrl = `/reports/customers?customer_id=${encodeURIComponent(order.customerId)}`;
       html += `
         <div class="px-4 py-3 border-bottom">
           <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
@@ -350,7 +330,7 @@
         </div>`;
     } else if (order.customerFirstName || order.customerLastName) {
       const name = [order.customerFirstName, order.customerLastName].filter(Boolean).join(' ');
-      const custUrl = `/reports/customers?company_id=${encodeURIComponent(companyId)}&search=${encodeURIComponent(name)}`;
+      const custUrl = `/reports/customers?search=${encodeURIComponent(name)}`;
       html += `
         <div class="px-4 py-3 border-bottom">
           <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
@@ -456,8 +436,7 @@
 
   document.querySelectorAll('.sale-row').forEach(function (tr) {
     tr.addEventListener('click', async function () {
-      const orderId   = tr.dataset.orderId;
-      const companyId = tr.dataset.companyId;
+      const orderId = tr.dataset.orderId;
 
       // Show spinner immediately
       detailBody.innerHTML = `
@@ -470,10 +449,10 @@
       oc.show();
 
       try {
-        const resp = await fetch(`/api/order-detail?company_id=${encodeURIComponent(companyId)}&order_id=${encodeURIComponent(orderId)}`);
+        const resp = await fetch(`/api/order-detail?order_id=${encodeURIComponent(orderId)}`);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
-        renderDetail(data, companyId);
+        renderDetail(data);
       } catch (e) {
         detailBody.innerHTML = `<div class="alert alert-danger m-3"><i class="bi bi-exclamation-triangle me-2"></i>${e.message}</div>`;
       }
