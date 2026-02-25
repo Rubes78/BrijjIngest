@@ -589,48 +589,107 @@ def report_sell_through():
 
     if company_id and start_date and end_date:
         try:
-            # Summary — overall sell-through metrics for the production date range
+            # Summary — overall sell-through metrics for the production date range.
+            # RCS items are joined to TPM sales via department+category = tpmProductName.
             summary_sql = """
+                WITH rcs AS (
+                    SELECT
+                        r.department + ' - ' + r.categoryName AS category,
+                        ISNULL(SUM(r.qtyProduced), 0)          AS qty_produced
+                    FROM rcs_items r
+                    WHERE CAST(r.lastUpdatedDt AS DATE) >= ?
+                      AND CAST(r.lastUpdatedDt AS DATE) <= ?
+                    GROUP BY r.department + ' - ' + r.categoryName
+                ),
+                sales AS (
+                    SELECT
+                        soi.tpmProductName   AS category,
+                        SUM(soi.quantity)    AS qty_sold,
+                        SUM(soi.totalAmount) AS revenue
+                    FROM sales_order_items soi
+                    JOIN sales_orders o ON o.salesOrderId = soi.salesOrderId
+                    WHERE o.date >= ?
+                      AND o.date <= ?
+                      AND soi.tpmProductId IS NOT NULL
+                    GROUP BY soi.tpmProductName
+                )
                 SELECT
-                    COUNT(DISTINCT r.barcode)                                                  AS items_produced,
-                    COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END)   AS items_sold,
-                    ISNULL(SUM(r.qtyProduced), 0)                                             AS total_qty_produced,
-                    ISNULL(SUM(soi.quantity),  0)                                             AS total_qty_sold,
-                    ISNULL(SUM(soi.totalAmount), 0)                                           AS total_revenue,
-                    AVG(CAST(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date) AS FLOAT))  AS avg_days_to_sell,
-                    MIN(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date))                 AS min_days_to_sell,
-                    MAX(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date))                 AS max_days_to_sell
-                FROM rcs_items r
-                LEFT JOIN sales_order_items soi ON soi.productSKU  = r.barcode
-                LEFT JOIN sales_orders o        ON o.salesOrderId  = soi.salesOrderId
-                WHERE CAST(r.lastUpdatedDt AS DATE) >= ? AND CAST(r.lastUpdatedDt AS DATE) <= ?
+                    SUM(r.qty_produced)        AS total_qty_produced,
+                    ISNULL(SUM(s.qty_sold), 0) AS total_qty_sold,
+                    SUM(r.qty_produced)        AS dup_qty_produced,
+                    ISNULL(SUM(s.qty_sold), 0) AS dup_qty_sold,
+                    ISNULL(SUM(s.revenue), 0)  AS total_revenue,
+                    NULL                       AS avg_days_to_sell,
+                    NULL                       AS min_days_to_sell,
+                    NULL                       AS max_days_to_sell
+                FROM rcs r
+                LEFT JOIN sales s ON s.category = r.category
             """
-            _, sum_rows = run_report_query(cfg, company_id, summary_sql, (start_date, end_date))
+            _, sum_rows = run_report_query(cfg, company_id, summary_sql,
+                                           (start_date, end_date, start_date, end_date))
             if sum_rows:
                 summary = sum_rows[0]
 
-            # Detail — grouped breakdown
+            # Detail — grouped breakdown.
+            # Sales are pro-rated within each category by qty_produced share to avoid
+            # double-counting when grouping by quality, condition, processor, etc.
             detail_sql = f"""
+                WITH rcs_detail AS (
+                    SELECT
+                        ISNULL(CAST(r.[{group_col}] AS NVARCHAR(255)), '(none)') AS group_val,
+                        r.department + ' - ' + r.categoryName                     AS category,
+                        ISNULL(SUM(r.qtyProduced), 0)                             AS qty_produced
+                    FROM rcs_items r
+                    WHERE CAST(r.lastUpdatedDt AS DATE) >= ?
+                      AND CAST(r.lastUpdatedDt AS DATE) <= ?
+                    GROUP BY r.[{group_col}], r.department + ' - ' + r.categoryName
+                ),
+                cat_totals AS (
+                    SELECT category, SUM(qty_produced) AS cat_qty_total
+                    FROM rcs_detail
+                    GROUP BY category
+                ),
+                sales AS (
+                    SELECT
+                        soi.tpmProductName   AS category,
+                        SUM(soi.quantity)    AS qty_sold,
+                        SUM(soi.totalAmount) AS revenue
+                    FROM sales_order_items soi
+                    JOIN sales_orders o ON o.salesOrderId = soi.salesOrderId
+                    WHERE o.date >= ?
+                      AND o.date <= ?
+                      AND soi.tpmProductId IS NOT NULL
+                    GROUP BY soi.tpmProductName
+                ),
+                allocated AS (
+                    SELECT
+                        r.group_val,
+                        r.qty_produced,
+                        ISNULL(s.qty_sold * CAST(r.qty_produced AS FLOAT)
+                               / NULLIF(ct.cat_qty_total, 0), 0) AS qty_sold_alloc,
+                        ISNULL(s.revenue  * CAST(r.qty_produced AS FLOAT)
+                               / NULLIF(ct.cat_qty_total, 0), 0) AS revenue_alloc
+                    FROM rcs_detail r
+                    JOIN cat_totals ct ON ct.category = r.category
+                    LEFT JOIN sales s   ON s.category  = r.category
+                )
                 SELECT
-                    ISNULL(CAST(r.[{group_col}] AS NVARCHAR(255)), '(none)')                   AS group_label,
-                    COUNT(DISTINCT r.barcode)                                                   AS items_produced,
-                    COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END)    AS items_sold,
-                    ISNULL(SUM(r.qtyProduced), 0)                                              AS total_qty_produced,
-                    ISNULL(SUM(soi.quantity),  0)                                              AS qty_sold,
+                    group_val                                                              AS group_label,
+                    SUM(qty_produced)                                                      AS items_produced,
+                    CAST(ROUND(SUM(qty_sold_alloc), 0) AS INT)                           AS items_sold,
+                    SUM(qty_produced)                                                      AS total_qty_produced,
+                    CAST(ROUND(SUM(qty_sold_alloc), 0) AS INT)                           AS qty_sold,
                     ISNULL(CAST(
-                        CAST(COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END) AS FLOAT) /
-                        NULLIF(COUNT(DISTINCT r.barcode), 0) * 100
-                    AS DECIMAL(5,1)), 0.0)                                                      AS sell_thru_pct,
-                    AVG(CAST(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date) AS FLOAT))   AS avg_days_to_sell,
-                    ISNULL(SUM(soi.totalAmount), 0)                                            AS revenue
-                FROM rcs_items r
-                LEFT JOIN sales_order_items soi ON soi.productSKU  = r.barcode
-                LEFT JOIN sales_orders o        ON o.salesOrderId  = soi.salesOrderId
-                WHERE CAST(r.lastUpdatedDt AS DATE) >= ? AND CAST(r.lastUpdatedDt AS DATE) <= ?
-                GROUP BY r.[{group_col}]
+                        SUM(qty_sold_alloc) / NULLIF(CAST(SUM(qty_produced) AS FLOAT), 0) * 100
+                    AS DECIMAL(5,1)), 0.0)                                                 AS sell_thru_pct,
+                    NULL                                                                   AS avg_days_to_sell,
+                    ISNULL(CAST(SUM(revenue_alloc) AS DECIMAL(12, 2)), 0)               AS revenue
+                FROM allocated
+                GROUP BY group_val
                 ORDER BY revenue DESC
             """
-            _, rows = run_report_query(cfg, company_id, detail_sql, (start_date, end_date))
+            _, rows = run_report_query(cfg, company_id, detail_sql,
+                                       (start_date, end_date, start_date, end_date))
 
         except Exception as e:
             error = str(e)
