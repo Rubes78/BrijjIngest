@@ -563,6 +563,92 @@ def report_sales():
     )
 
 
+@app.route("/reports/sell-through", methods=["GET"])
+def report_sell_through():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    company_id = request.args.get("company_id", "")
+    start_date = request.args.get("start_date", "")
+    end_date   = request.args.get("end_date", "")
+    group_by   = request.args.get("group_by", "department")
+
+    VALID_GROUPS = {
+        "department":      ("department",          "Department"),
+        "category":        ("categoryName",        "Category"),
+        "subcategory":     ("subcategoryName",     "Subcategory"),
+        "quality":         ("qualityDescr",        "Quality"),
+        "condition":       ("conditionDescr",      "Condition"),
+        "producingstore":  ("productionStoreName", "Production Store"),
+        "processorname":   ("processorName",       "Processor"),
+        "productioncycle": ("productionCycle",     "Production Cycle"),
+    }
+    group_col, group_label = VALID_GROUPS.get(group_by, ("department", "Department"))
+
+    summary, rows, error = None, [], None
+
+    if company_id and start_date and end_date:
+        try:
+            # Summary — overall sell-through metrics for the production date range
+            summary_sql = """
+                SELECT
+                    COUNT(DISTINCT r.barcode)                                                  AS items_produced,
+                    COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END)   AS items_sold,
+                    ISNULL(SUM(r.qtyProduced), 0)                                             AS total_qty_produced,
+                    ISNULL(SUM(soi.quantity),  0)                                             AS total_qty_sold,
+                    ISNULL(SUM(soi.totalAmount), 0)                                           AS total_revenue,
+                    AVG(CAST(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date) AS FLOAT))  AS avg_days_to_sell,
+                    MIN(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date))                 AS min_days_to_sell,
+                    MAX(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date))                 AS max_days_to_sell
+                FROM rcs_items r
+                LEFT JOIN sales_order_items soi ON soi.productSKU  = r.barcode
+                LEFT JOIN sales_orders o        ON o.salesOrderId  = soi.salesOrderId
+                WHERE CAST(r.lastUpdatedDt AS DATE) >= ? AND CAST(r.lastUpdatedDt AS DATE) <= ?
+            """
+            _, sum_rows = run_report_query(cfg, company_id, summary_sql, (start_date, end_date))
+            if sum_rows:
+                summary = sum_rows[0]
+
+            # Detail — grouped breakdown
+            detail_sql = f"""
+                SELECT
+                    ISNULL(CAST(r.[{group_col}] AS NVARCHAR(255)), '(none)')                   AS group_label,
+                    COUNT(DISTINCT r.barcode)                                                   AS items_produced,
+                    COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END)    AS items_sold,
+                    ISNULL(SUM(r.qtyProduced), 0)                                              AS total_qty_produced,
+                    ISNULL(SUM(soi.quantity),  0)                                              AS qty_sold,
+                    ISNULL(CAST(
+                        CAST(COUNT(DISTINCT CASE WHEN o.salesOrderId IS NOT NULL THEN r.barcode END) AS FLOAT) /
+                        NULLIF(COUNT(DISTINCT r.barcode), 0) * 100
+                    AS DECIMAL(5,1)), 0.0)                                                      AS sell_thru_pct,
+                    AVG(CAST(DATEDIFF(day, CAST(r.lastUpdatedDt AS DATE), o.date) AS FLOAT))   AS avg_days_to_sell,
+                    ISNULL(SUM(soi.totalAmount), 0)                                            AS revenue
+                FROM rcs_items r
+                LEFT JOIN sales_order_items soi ON soi.productSKU  = r.barcode
+                LEFT JOIN sales_orders o        ON o.salesOrderId  = soi.salesOrderId
+                WHERE CAST(r.lastUpdatedDt AS DATE) >= ? AND CAST(r.lastUpdatedDt AS DATE) <= ?
+                GROUP BY r.[{group_col}]
+                ORDER BY revenue DESC
+            """
+            _, rows = run_report_query(cfg, company_id, detail_sql, (start_date, end_date))
+
+        except Exception as e:
+            error = str(e)
+
+    return render_template(
+        "report_sell_through.html",
+        companies=companies,
+        company_id=company_id,
+        start_date=start_date,
+        end_date=end_date,
+        group_by=group_by,
+        group_label=group_label,
+        summary=summary,
+        rows=rows,
+        error=error,
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
