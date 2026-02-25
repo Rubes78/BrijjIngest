@@ -1102,7 +1102,6 @@ def report_sales_history():
 
     today      = datetime.date.today().isoformat()
 
-    company_id     = request.args.get("company_id", "")
     start_date     = request.args.get("start_date", today)
     end_date       = request.args.get("end_date",   today)
     sales_type     = request.args.get("sales_type",     "").strip()
@@ -1158,7 +1157,7 @@ def report_sales_history():
         "sort_dir":       sort_dir.lower(),
     }.items() if v})
 
-    if company_id:
+    if active:
         try:
             like = f"%{search}%" if search else "%"
 
