@@ -13,8 +13,9 @@ import sys
 import threading
 import uuid
 import pyodbc
+import datetime
 from urllib.parse import urlencode
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context, jsonify
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
@@ -997,6 +998,274 @@ def report_customers():
         rows=rows,
         error=error,
     )
+
+
+SALES_HISTORY_SORT_COLS = {
+    "date":     "o.date {dir}",
+    "customer": "o.customerLastName {dir}, o.customerFirstName {dir}",
+    "cashier":  "o.userName {dir}",
+    "total":    "o.totalAmount {dir}",
+    "status":   "o.paymentStatus {dir}",
+    "items":    "ic.itemCount {dir}",
+}
+
+
+@app.route("/reports/sales-history", methods=["GET"])
+def report_sales_history():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    today      = datetime.date.today().isoformat()
+    month_ago  = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+
+    company_id     = request.args.get("company_id", "")
+    start_date     = request.args.get("start_date", month_ago)
+    end_date       = request.args.get("end_date",   today)
+    sales_type     = request.args.get("sales_type",     "").strip()
+    payment_status = request.args.get("payment_status", "").strip()
+    search         = request.args.get("search", "").strip()
+    sort_by        = request.args.get("sort_by", "date")
+    sort_dir       = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
+    page           = max(1, int(request.args.get("page", 1) or 1))
+    page_size      = 50
+
+    if sort_by not in SALES_HISTORY_SORT_COLS:
+        sort_by = "date"
+
+    sort_expr = SALES_HISTORY_SORT_COLS[sort_by].replace("{dir}", sort_dir)
+    rows, total_count, available_sales_types, available_payment_statuses, error = [], 0, [], [], None
+
+    filter_qs = urlencode({k: v for k, v in {
+        "company_id":     company_id,
+        "start_date":     start_date,
+        "end_date":       end_date,
+        "sales_type":     sales_type,
+        "payment_status": payment_status,
+        "search":         search,
+    }.items() if v})
+    sort_qs = urlencode({k: v for k, v in {
+        "company_id":     company_id,
+        "start_date":     start_date,
+        "end_date":       end_date,
+        "sales_type":     sales_type,
+        "payment_status": payment_status,
+        "search":         search,
+        "sort_by":        sort_by,
+        "sort_dir":       sort_dir.lower(),
+    }.items() if v})
+
+    if company_id:
+        try:
+            like = f"%{search}%" if search else "%"
+
+            # Filter dropdowns
+            _, st_rows = run_report_query(cfg, company_id,
+                "SELECT DISTINCT salesType FROM sales_orders WHERE salesType IS NOT NULL AND salesType != '' ORDER BY salesType", ())
+            available_sales_types = [r[0] for r in st_rows]
+
+            _, ps_rows = run_report_query(cfg, company_id,
+                "SELECT DISTINCT paymentStatus FROM sales_orders WHERE paymentStatus IS NOT NULL AND paymentStatus != '' ORDER BY paymentStatus", ())
+            available_payment_statuses = [r[0] for r in ps_rows]
+
+            # Build WHERE dynamically
+            where_parts, where_params = [], []
+            if start_date:
+                where_parts.append("o.date >= ?")
+                where_params.append(start_date)
+            if end_date:
+                where_parts.append("o.date <= ?")
+                where_params.append(end_date)
+            if sales_type:
+                where_parts.append("o.salesType = ?")
+                where_params.append(sales_type)
+            if payment_status:
+                where_parts.append("o.paymentStatus = ?")
+                where_params.append(payment_status)
+            if search:
+                where_parts.append("""(
+                    ISNULL(o.referenceNumber,'') LIKE ?
+                    OR ISNULL(o.customerFirstName,'') + ' ' + ISNULL(o.customerLastName,'') LIKE ?
+                )""")
+                where_params.extend([like, like])
+
+            where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+            count_sql = f"SELECT COUNT(*) FROM sales_orders o {where_sql}"
+            _, cnt_rows = run_report_query(cfg, company_id, count_sql, tuple(where_params))
+            total_count = cnt_rows[0][0] if cnt_rows else 0
+
+            list_sql = f"""
+                SELECT
+                    o.salesOrderId,
+                    CONVERT(NVARCHAR(10), o.date, 23)             AS saleDate,
+                    ISNULL(o.referenceNumber, '')                  AS referenceNumber,
+                    ISNULL(o.salesType, '')                        AS salesType,
+                    ISNULL(o.paymentStatus, '')                    AS paymentStatus,
+                    ISNULL(o.returnType, '')                       AS returnType,
+                    ISNULL(o.totalAmount, 0)                       AS totalAmount,
+                    o.customerId,
+                    ISNULL(o.customerFirstName + ' ' + o.customerLastName, '') AS customerName,
+                    ISNULL(o.storeName, '')                        AS storeName,
+                    ISNULL(o.userName, '')                         AS cashier,
+                    ic.itemCount,
+                    ISNULL(pm.paymentMethods, '')                  AS paymentMethods
+                FROM sales_orders o
+                OUTER APPLY (
+                    SELECT COUNT(*) AS itemCount
+                    FROM sales_order_items
+                    WHERE salesOrderId = o.salesOrderId
+                ) ic
+                OUTER APPLY (
+                    SELECT STRING_AGG(paymentMethod, ', ') AS paymentMethods
+                    FROM (
+                        SELECT DISTINCT paymentMethod
+                        FROM sales_payments
+                        WHERE salesOrderId = o.salesOrderId AND paymentStatus = 'Success'
+                    ) pd
+                ) pm
+                {where_sql}
+                ORDER BY {sort_expr}, o.salesOrderId DESC
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+            """
+            _, rows = run_report_query(cfg, company_id, list_sql,
+                                       tuple(where_params) + (((page - 1) * page_size), page_size))
+        except Exception as e:
+            error = str(e)
+
+    total_pages = max(1, -(-total_count // page_size))
+
+    return render_template(
+        "report_sales_history.html",
+        companies=companies,
+        company_id=company_id,
+        start_date=start_date,
+        end_date=end_date,
+        sales_type=sales_type,
+        payment_status=payment_status,
+        available_sales_types=available_sales_types,
+        available_payment_statuses=available_payment_statuses,
+        search=search,
+        sort_by=sort_by,
+        sort_dir=sort_dir.lower(),
+        filter_qs=filter_qs,
+        sort_qs=sort_qs,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+        rows=rows,
+        error=error,
+    )
+
+
+@app.route("/api/order-detail")
+def api_order_detail():
+    cfg        = load_config()
+    company_id = request.args.get("company_id", "")
+    order_id   = request.args.get("order_id",   "")
+
+    if not company_id or not order_id:
+        return jsonify({"error": "Missing params"}), 400
+
+    try:
+        _, o_rows = run_report_query(cfg, company_id, """
+            SELECT salesOrderId,
+                   CONVERT(NVARCHAR(10), date, 23),
+                   ISNULL(referenceNumber,''),
+                   ISNULL(salesType,''), ISNULL(paymentStatus,''),
+                   ISNULL(returnType,''), ISNULL(checkoutType,''),
+                   ISNULL(totalAmount,0), ISNULL(discountAmount,0),
+                   ISNULL(taxAmount,0),  ISNULL(roundupAmount,0),
+                   ISNULL(orderTotalBeforeDiscount,0),
+                   ISNULL(totalDiscountPercentageOnOrder,0),
+                   customerId,
+                   ISNULL(customerFirstName,''), ISNULL(customerLastName,''),
+                   ISNULL(customerLoyaltyPoints,0), ISNULL(customerStoreCredit,0),
+                   ISNULL(storeName,''), ISNULL(registerName,''), ISNULL(userName,''),
+                   ISNULL(loyaltyPoints,0), ISNULL(note,''),
+                   CONVERT(NVARCHAR(19), createdAt, 120)
+            FROM sales_orders WHERE salesOrderId = ?
+        """, (order_id,))
+
+        if not o_rows:
+            return jsonify({"error": "Order not found"}), 404
+
+        r = o_rows[0]
+        order = {
+            "salesOrderId": r[0],  "date": r[1],
+            "referenceNumber": r[2],
+            "salesType": r[3],     "paymentStatus": r[4],
+            "returnType": r[5],    "checkoutType": r[6],
+            "totalAmount": float(r[7]),       "discountAmount": float(r[8]),
+            "taxAmount": float(r[9]),         "roundupAmount": float(r[10]),
+            "orderTotalBeforeDiscount": float(r[11]),
+            "totalDiscountPct": float(r[12]),
+            "customerId": r[13],
+            "customerFirstName": r[14],       "customerLastName": r[15],
+            "customerLoyaltyPoints": float(r[16]), "customerStoreCredit": float(r[17]),
+            "storeName": r[18],   "registerName": r[19],  "cashier": r[20],
+            "loyaltyPoints": float(r[21]),    "note": r[22],
+            "createdAt": r[23],
+        }
+
+        _, i_rows = run_report_query(cfg, company_id, """
+            SELECT salesOrderItemId,
+                   ISNULL(productName, ISNULL(tpmProductName,'')) AS itemName,
+                   ISNULL(productSKU,''),
+                   ISNULL(tpmProductName,''),
+                   ISNULL(productCondition,''),
+                   ISNULL(salesOrderItemType,''),
+                   quantity, ISNULL(returnedQuantity,0),
+                   ISNULL(sellingPrice,0), ISNULL(totalAmount,0),
+                   ISNULL(discountAmount,0), ISNULL(taxAmount,0),
+                   ISNULL(note,''),
+                   CASE WHEN tpmProductId IS NOT NULL THEN 1 ELSE 0 END AS isTpm
+            FROM sales_order_items
+            WHERE salesOrderId = ?
+            ORDER BY salesOrderItemId
+        """, (order_id,))
+
+        items = [{
+            "id": r[0], "name": r[1], "sku": r[2], "tpmProductName": r[3],
+            "condition": r[4], "itemType": r[5],
+            "qty": r[6], "returnedQty": r[7],
+            "price": float(r[8]), "total": float(r[9]),
+            "discount": float(r[10]), "tax": float(r[11]),
+            "note": r[12], "isTpm": bool(r[13]),
+        } for r in i_rows]
+
+        _, p_rows = run_report_query(cfg, company_id, """
+            SELECT id, ISNULL(paymentMethod,''), ISNULL(paymentStatus,''),
+                   ISNULL(currency,''), ISNULL(amount,0)
+            FROM sales_payments WHERE salesOrderId = ? ORDER BY id
+        """, (order_id,))
+
+        payments = [{
+            "id": r[0], "method": r[1], "status": r[2],
+            "currency": r[3], "amount": float(r[4]),
+        } for r in p_rows]
+
+        customer = None
+        if order["customerId"]:
+            _, c_rows = run_report_query(cfg, company_id, """
+                SELECT ISNULL(firstName,''), ISNULL(lastName,''),
+                       ISNULL(email,''), ISNULL(phoneNumber,''),
+                       ISNULL(loyaltyPoints,0), ISNULL(storeCredit,0), ISNULL(onAccountBalance,0)
+                FROM customers WHERE id = ?
+            """, (order["customerId"],))
+            if c_rows:
+                cr = c_rows[0]
+                customer = {
+                    "firstName": cr[0], "lastName": cr[1],
+                    "email": cr[2], "phoneNumber": cr[3],
+                    "loyaltyPoints": float(cr[4]), "storeCredit": float(cr[5]),
+                    "onAccountBalance": float(cr[6]),
+                }
+
+        return jsonify({"order": order, "items": items, "payments": payments, "customer": customer})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

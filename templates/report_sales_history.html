@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Sales History{% endblock %}
+
+{% macro sort_th(col, label, cls='') %}
+  {% set active = sort_by == col %}
+  {% set next_dir = 'asc' if (active and sort_dir == 'desc') else 'desc' if active else 'desc' %}
+  <th class="{{ cls }}">
+    <a href="/reports/sales-history?{{ filter_qs }}&sort_by={{ col }}&sort_dir={{ next_dir }}&page=1"
+       class="text-decoration-none d-inline-flex align-items-center gap-1
+              {{ 'flex-row-reverse' if 'text-end' in cls else '' }}
+              {{ 'text-primary fw-semibold' if active else 'text-dark' }}">
+      {{ label }}
+      <i class="bi small
+         {{ 'bi-chevron-up'     if active and sort_dir == 'asc'
+            else 'bi-chevron-down' if active and sort_dir == 'desc'
+            else 'bi-chevron-expand text-muted opacity-50' }}"></i>
+    </a>
+  </th>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h1><i class="bi bi-clock-history me-2 text-primary"></i>Sales History</h1>
+  {% if total_count > 0 %}
+    <span class="text-muted small">{{ '{:,}'.format(total_count) }} order{{ 's' if total_count != 1 }}</span>
+  {% endif %}
+</div>
+
+<!-- Filter form -->
+<div class="card mb-4">
+  <div class="card-header">Filters</div>
+  <div class="card-body">
+    <form method="get" action="/reports/sales-history" class="row g-3 align-items-end">
+
+      <div class="col-md-2">
+        <label class="form-label">Company</label>
+        <select name="company_id" class="form-select" onchange="this.form.submit()">
+          <option value="">-- select --</option>
+          {% for c in companies %}
+            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">From</label>
+        <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">To</label>
+        <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">Type</label>
+        <select name="sales_type" class="form-select">
+          <option value="">All types</option>
+          {% for t in available_sales_types %}
+            <option value="{{ t }}" {{ 'selected' if sales_type == t }}>
+              {{ 'Sale' if t == 'FreshOrder' else 'Return' if t == 'ReturnOrder' else t }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">Status</label>
+        <select name="payment_status" class="form-select">
+          <option value="">All statuses</option>
+          {% for s in available_payment_statuses %}
+            <option value="{{ s }}" {{ 'selected' if payment_status == s }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <input type="hidden" name="sort_by"  value="{{ sort_by }}">
+      <input type="hidden" name="sort_dir" value="{{ sort_dir }}">
+
+      <div class="col-12 col-md-auto">
+        <label class="form-label d-block">Search</label>
+        <div class="input-group">
+          <input type="text" name="search" class="form-control"
+                 placeholder="Ref # or customer name…" value="{{ search }}"
+                 style="min-width:200px">
+          <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i></button>
+          {% if search or sales_type or payment_status %}
+            <a href="/reports/sales-history?company_id={{ company_id }}&start_date={{ start_date }}&end_date={{ end_date }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
+               class="btn btn-outline-secondary"><i class="bi bi-x"></i></a>
+          {% endif %}
+        </div>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+  </div>
+
+{% elif rows %}
+
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <span>
+        {% if search %}Results for "<strong>{{ search }}</strong>"
+        {% elif sales_type or payment_status %}Filtered results
+        {% else %}All Orders{% endif %}
+        &nbsp;·&nbsp; {{ start_date }} to {{ end_date }}
+      </span>
+      {% if total_pages > 1 %}
+        <span class="text-muted small">Page {{ page }} of {{ total_pages }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            {{ sort_th('date',     'Date') }}
+            <th>Ref #</th>
+            <th>Type</th>
+            {{ sort_th('customer', 'Customer') }}
+            {{ sort_th('cashier',  'Cashier') }}
+            {{ sort_th('items',    'Items', 'text-end') }}
+            {{ sort_th('total',    'Total',  'text-end') }}
+            <th>Payment</th>
+            {{ sort_th('status',   'Status') }}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          {# row: [0]salesOrderId [1]date [2]refNum [3]salesType [4]payStatus [5]returnType
+                  [6]total [7]customerId [8]customerName [9]storeName [10]cashier
+                  [11]itemCount [12]paymentMethods #}
+          <tr class="sale-row" style="cursor:pointer"
+              data-order-id="{{ row[0] }}"
+              data-company-id="{{ company_id }}">
+            <td class="text-muted small">{{ row[1] }}</td>
+            <td>
+              <span class="font-monospace small">{{ row[2] or '#' ~ row[0] }}</span>
+            </td>
+            <td>
+              {% if row[3] == 'ReturnOrder' %}
+                <span class="badge bg-warning text-dark">Return</span>
+              {% else %}
+                <span class="badge bg-light text-dark border">Sale</span>
+              {% endif %}
+            </td>
+            <td>{{ row[8] if row[8] else '<span class="text-muted">Walk-in</span>' | safe }}</td>
+            <td class="text-muted small">{{ row[10] or '—' }}</td>
+            <td class="text-end text-muted small">{{ row[11] }}</td>
+            <td class="text-end fw-semibold
+               {{ 'text-warning' if row[3] == 'ReturnOrder' else '' }}">
+              {{ ('$' ~ '{:,.2f}'.format(row[6])) if row[6] is not none else '—' }}
+            </td>
+            <td class="small text-muted">{{ row[12] or '—' }}</td>
+            <td>
+              {% if row[4] == 'Success' %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">Success</span>
+              {% elif row[4] == 'Incomplete' %}
+                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Incomplete</span>
+              {% elif row[4] == 'Failed' %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Failed</span>
+              {% else %}
+                <span class="badge bg-light text-muted border">{{ row[4] or '—' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="card-footer bg-white border-top-0 d-flex justify-content-between align-items-center py-3 px-4">
+      <span class="text-muted small">
+        Showing {{ (page-1)*page_size+1 }}–{{ [page*page_size, total_count]|min }}
+        of {{ '{:,}'.format(total_count) }}
+      </span>
+      <nav>
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item {{ 'disabled' if page <= 1 }}">
+            <a class="page-link" href="/reports/sales-history?{{ sort_qs }}&page={{ page-1 }}">
+              <i class="bi bi-chevron-left"></i></a>
+          </li>
+          {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+            <li class="page-item {{ 'active' if p == page }}">
+              <a class="page-link" href="/reports/sales-history?{{ sort_qs }}&page={{ p }}">{{ p }}</a>
+            </li>
+          {% endfor %}
+          <li class="page-item {{ 'disabled' if page >= total_pages }}">
+            <a class="page-link" href="/reports/sales-history?{{ sort_qs }}&page={{ page+1 }}">
+              <i class="bi bi-chevron-right"></i></a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    {% endif %}
+  </div>
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No orders found for the selected filters.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-clock-history fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company above to view sales history.</p>
+    </div>
+  </div>
+{% endif %}
+
+<!-- Sale detail offcanvas -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="saleDetail" style="width:580px">
+  <div class="offcanvas-header border-bottom">
+    <div>
+      <h5 class="offcanvas-title mb-0" id="oc-ref">Order Details</h5>
+      <div class="mt-1" id="oc-badges"></div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0" id="detail-body">
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-clock-history fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Click a row to view order details.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const offcanvasEl = document.getElementById('saleDetail');
+  const oc          = new bootstrap.Offcanvas(offcanvasEl);
+  const detailBody  = document.getElementById('detail-body');
+
+  function fmt(n, decimals=2) {
+    return parseFloat(n).toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+  }
+  function money(n) { return '$' + fmt(n); }
+
+  function statusBadge(status) {
+    const map = {
+      'Success':    'bg-success-subtle text-success border border-success-subtle',
+      'Incomplete': 'bg-warning-subtle text-warning border border-warning-subtle',
+      'Failed':     'bg-danger-subtle  text-danger  border border-danger-subtle',
+    };
+    return `<span class="badge ${map[status] || 'bg-light text-muted border'}">${status || '—'}</span>`;
+  }
+
+  function renderDetail(data) {
+    const { order, customer, items, payments } = data;
+
+    // Update header
+    document.getElementById('oc-ref').textContent = order.referenceNumber || 'Order #' + order.salesOrderId;
+    let badges = statusBadge(order.paymentStatus);
+    if (order.salesType === 'ReturnOrder')
+      badges += ' <span class="badge bg-warning text-dark ms-1">Return</span>';
+    document.getElementById('oc-badges').innerHTML = badges;
+
+    let html = '';
+
+    // ── Order meta ─────────────────────────────────────────────────────────
+    html += `
+      <div class="px-4 py-3 border-bottom">
+        <div class="row g-3">
+          <div class="col-6">
+            <div class="text-muted small">Date</div>
+            <div class="fw-semibold">${order.date}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Created</div>
+            <div class="small">${order.createdAt || '—'}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Store</div>
+            <div>${order.storeName || '—'}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Register</div>
+            <div>${order.registerName || '—'}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Cashier</div>
+            <div>${order.cashier || '—'}</div>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Loyalty Points Earned</div>
+            <div>${fmt(order.loyaltyPoints, 0)}</div>
+          </div>
+          ${order.note ? `<div class="col-12"><div class="text-muted small">Note</div><div class="small fst-italic">${order.note}</div></div>` : ''}
+        </div>
+      </div>`;
+
+    // ── Customer ────────────────────────────────────────────────────────────
+    if (customer && (customer.firstName || customer.lastName)) {
+      const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+      html += `
+        <div class="px-4 py-3 border-bottom">
+          <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="fw-semibold">${name}</div>
+              ${customer.email    ? `<div class="small text-muted"><i class="bi bi-envelope me-1"></i>${customer.email}</div>` : ''}
+              ${customer.phoneNumber ? `<div class="small text-muted"><i class="bi bi-telephone me-1"></i>${customer.phoneNumber}</div>` : ''}
+            </div>
+            <div class="text-end small text-muted">
+              <div><i class="bi bi-star me-1"></i>${fmt(customer.loyaltyPoints, 0)} pts</div>
+              ${customer.storeCredit > 0 ? `<div>${money(customer.storeCredit)} credit</div>` : ''}
+            </div>
+          </div>
+        </div>`;
+    } else if (order.customerFirstName || order.customerLastName) {
+      const name = [order.customerFirstName, order.customerLastName].filter(Boolean).join(' ');
+      html += `
+        <div class="px-4 py-3 border-bottom">
+          <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
+          <div class="fw-semibold">${name}</div>
+          <div class="small text-muted mt-1">
+            <i class="bi bi-star me-1"></i>${fmt(order.customerLoyaltyPoints, 0)} pts &nbsp;|&nbsp;
+            ${money(order.customerStoreCredit)} credit
+          </div>
+        </div>`;
+    } else {
+      html += `
+        <div class="px-4 py-3 border-bottom">
+          <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Customer</div>
+          <span class="text-muted">Walk-in / no customer linked</span>
+        </div>`;
+    }
+
+    // ── Items ───────────────────────────────────────────────────────────────
+    html += `
+      <div class="px-4 py-3 border-bottom">
+        <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">
+          Items (${items.length})
+        </div>
+        <table class="table table-sm mb-0" style="font-size:.85rem">
+          <thead class="table-light">
+            <tr>
+              <th>Product</th>
+              <th class="text-end">Qty</th>
+              <th class="text-end">Price</th>
+              <th class="text-end">Disc</th>
+              <th class="text-end">Total</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    for (const item of items) {
+      const returned = item.returnedQty > 0
+        ? ` <span class="badge bg-warning text-dark ms-1">–${item.returnedQty} ret</span>` : '';
+      const condBadge = item.condition
+        ? ` <span class="badge bg-light text-muted border" style="font-size:.7rem">${item.condition}</span>` : '';
+      const skuLine = item.sku ? `<div class="text-muted" style="font-size:.75rem">SKU: ${item.sku}</div>` : '';
+      const discount = item.discount > 0 ? `-${money(item.discount)}` : '—';
+      html += `
+            <tr>
+              <td>
+                <div>${item.name}${returned}${condBadge}</div>
+                ${skuLine}
+              </td>
+              <td class="text-end">${item.qty}</td>
+              <td class="text-end">${money(item.price)}</td>
+              <td class="text-end text-danger">${discount}</td>
+              <td class="text-end fw-semibold">${money(item.total)}</td>
+            </tr>`;
+    }
+
+    html += `
+          </tbody>
+        </table>
+      </div>`;
+
+    // ── Payments ────────────────────────────────────────────────────────────
+    html += `
+      <div class="px-4 py-3 border-bottom">
+        <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Payments</div>`;
+
+    for (const p of payments) {
+      const icon = {
+        'Cash': 'bi-cash', 'Card': 'bi-credit-card', 'ExternalCard': 'bi-credit-card-2-front',
+        'StoreCredit': 'bi-gift', 'LoyaltyPoint': 'bi-star', 'GiftCard': 'bi-gift-fill',
+      }[p.method] || 'bi-wallet2';
+      const failedClass = p.status === 'Failed' ? 'text-danger text-decoration-line-through' : '';
+      html += `
+        <div class="d-flex justify-content-between align-items-center mb-1 ${failedClass}">
+          <span><i class="bi ${icon} me-2 text-muted"></i>${p.method || 'Unknown'}</span>
+          <span class="fw-semibold">${money(p.amount)}</span>
+        </div>`;
+    }
+    html += `</div>`;
+
+    // ── Totals ──────────────────────────────────────────────────────────────
+    const rows = [
+      order.orderTotalBeforeDiscount > 0 && order.discountAmount > 0
+        ? ['Subtotal', money(order.orderTotalBeforeDiscount), ''] : null,
+      order.discountAmount > 0 ? ['Discount', `-${money(order.discountAmount)}`, 'text-danger'] : null,
+      order.taxAmount      > 0 ? ['Tax',      money(order.taxAmount),  ''] : null,
+      order.roundupAmount  > 0 ? ['Rounding', money(order.roundupAmount), ''] : null,
+      ['Total', money(order.totalAmount), 'fw-bold fs-6'],
+    ].filter(Boolean);
+
+    html += `
+      <div class="px-4 py-3">
+        <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Order Total</div>`;
+    for (const [label, value, cls] of rows) {
+      html += `
+        <div class="d-flex justify-content-between ${cls}">
+          <span>${label}</span><span>${value}</span>
+        </div>`;
+    }
+    html += `</div>`;
+
+    detailBody.innerHTML = html;
+  }
+
+  document.querySelectorAll('.sale-row').forEach(function (tr) {
+    tr.addEventListener('click', async function () {
+      const orderId   = tr.dataset.orderId;
+      const companyId = tr.dataset.companyId;
+
+      // Show spinner immediately
+      detailBody.innerHTML = `
+        <div class="text-center py-5 text-muted">
+          <div class="spinner-border text-primary mb-3"></div>
+          <p class="mb-0">Loading order…</p>
+        </div>`;
+      document.getElementById('oc-ref').textContent = 'Loading…';
+      document.getElementById('oc-badges').innerHTML = '';
+      oc.show();
+
+      try {
+        const resp = await fetch(`/api/order-detail?company_id=${encodeURIComponent(companyId)}&order_id=${encodeURIComponent(orderId)}`);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        renderDetail(data);
+      } catch (e) {
+        detailBody.innerHTML = `<div class="alert alert-danger m-3"><i class="bi bi-exclamation-triangle me-2"></i>${e.message}</div>`;
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}
