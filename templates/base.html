@@ -92,11 +92,12 @@
   <div class="brand"><i class="bi bi-database-fill-gear me-2" style="color:#4f9cf9"></i>Brijj<span>Data</span></div>
   <nav>
     <div class="section-label">Configuration</div>
-    <a href="/" class="{{ 'active' if request.path == '/' }}"><i class="bi bi-speedometer2"></i> Dashboard</a>
+    <a href="/" class="{{ 'active' if request.path == '/' }}"><i class="bi bi-gear"></i> Configuration</a>
     <a href="/database" class="{{ 'active' if request.path == '/database' }}"><i class="bi bi-server"></i> Database</a>
     <a href="/apis" class="{{ 'active' if request.path == '/apis' }}"><i class="bi bi-cloud-arrow-up"></i> API Endpoints</a>
     <a href="/companies" class="{{ 'active' if request.path.startswith('/compan') }}"><i class="bi bi-building"></i> Companies</a>
     <div class="section-label">Reports</div>
+    <a href="/reports/dashboard" class="{{ 'active' if request.path == '/reports/dashboard' }}"><i class="bi bi-speedometer2"></i> Dashboard</a>
     <a href="/reports/items-produced" class="{{ 'active' if request.path == '/reports/items-produced' }}"><i class="bi bi-bar-chart-line"></i> Items Produced</a>
     <a href="/reports/sales" class="{{ 'active' if request.path == '/reports/sales' }}"><i class="bi bi-receipt"></i> Sales</a>
     <a href="/reports/sales-history" class="{{ 'active' if request.path == '/reports/sales-history' }}"><i class="bi bi-clock-history"></i> Sales History</a>

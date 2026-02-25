@@ -117,6 +117,15 @@ def index():
     apis      = get_section(cfg, "apis")
     companies = get_companies(cfg)
     stats     = get_company_stats(cfg, companies)
+    return render_template("index.html",
+                           db=db, apis=apis, companies=companies,
+                           stats=stats, config_path=CONFIG_FILE)
+
+
+@app.route("/reports/dashboard", methods=["GET"])
+def report_dashboard():
+    cfg       = load_config()
+    companies = get_companies(cfg)
 
     company_id = request.args.get("company_id", "")
     if not company_id and len(companies) == 1:
@@ -173,11 +182,12 @@ def index():
         except Exception as e:
             kpi_error = str(e)
 
-    return render_template("index.html",
-                           db=db, apis=apis, companies=companies,
-                           stats=stats, config_path=CONFIG_FILE,
+    return render_template("report_dashboard.html",
+                           companies=companies,
                            company_id=company_id,
-                           kpis=kpis, top_categories=top_categories, kpi_error=kpi_error)
+                           kpis=kpis,
+                           top_categories=top_categories,
+                           kpi_error=kpi_error)
 
 
 @app.route("/database", methods=["GET", "POST"])

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h1><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h1>
+
+  {% if companies %}
+  <form method="get" action="/reports/dashboard" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 small text-muted">Company</label>
+    <select name="company_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for c in companies %}
+        <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+          {{ c.company_id }}
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+
+{% if kpi_error %}
+  <div class="alert alert-danger mb-4"><i class="bi bi-exclamation-triangle me-2"></i>{{ kpi_error }}</div>
+{% endif %}
+
+{% if kpis %}
+<!-- ── KPI cards ─────────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Revenue Today</div>
+        <div class="fs-4 fw-bold text-primary">${{ '{:,.2f}'.format(kpis.rev_today) }}</div>
+        <div class="text-muted small mt-1">{{ kpis.orders_today }} order{{ 's' if kpis.orders_today != 1 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Revenue 7 Days</div>
+        <div class="fs-4 fw-bold text-primary">${{ '{:,.2f}'.format(kpis.rev_7d) }}</div>
+        <div class="text-muted small mt-1">{{ kpis.orders_7d }} order{{ 's' if kpis.orders_7d != 1 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Revenue 30 Days</div>
+        <div class="fs-4 fw-bold text-primary">${{ '{:,.2f}'.format(kpis.rev_30d) }}</div>
+        <div class="text-muted small mt-1">{{ kpis.orders_30d }} order{{ 's' if kpis.orders_30d != 1 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Avg Order (30d)</div>
+        <div class="fs-4 fw-bold text-success">${{ '{:,.2f}'.format(kpis.avg_order_30d) }}</div>
+        <div class="text-muted small mt-1">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Total Customers</div>
+        <div class="fs-4 fw-bold text-info">{{ '{:,}'.format(kpis.customer_count) }}</div>
+        <div class="text-muted small mt-1">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-2">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Returns (30d)</div>
+        <div class="fs-4 fw-bold text-warning">{{ kpis.returns_30d }}</div>
+        <div class="text-muted small mt-1">${{ '{:,.2f}'.format(kpis.return_value_30d) }}</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Top categories ────────────────────────────────────────────────────── -->
+{% if top_categories %}
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-bar-chart-line me-2 text-primary"></i>Top Categories — Last 30 Days
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>#</th>
+          <th>Category</th>
+          <th class="text-end">Units Sold</th>
+          <th class="text-end">Revenue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cat in top_categories %}
+        <tr>
+          <td class="text-muted small">{{ loop.index }}</td>
+          <td>{{ cat.name or '(unnamed)' }}</td>
+          <td class="text-end text-muted small">{{ '{:,}'.format(cat.units) }}</td>
+          <td class="text-end fw-semibold">${{ '{:,.2f}'.format(cat.revenue) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No sales data found for this company.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-speedometer2 fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company above to view the dashboard.</p>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
