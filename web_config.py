@@ -619,8 +619,18 @@ def report_sell_through():
                     FROM prod_by_date GROUP BY category
                 ),
                 sold_by_date AS (
+                    -- Normalise tpmProductName to "Dept - Cat" for matching:
+                    -- cycle-tagged names ("ORANGE Dept - Cat_timestamp") have the
+                    -- timestamp and leading colour word stripped; plain names are used as-is.
                     SELECT
-                        soi.tpmProductName   AS category,
+                        CASE WHEN CHARINDEX('_', soi.tpmProductName) > 0
+                             THEN SUBSTRING(
+                                      LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1),
+                                      CHARINDEX(' ', LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1)) + 1,
+                                      LEN(LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1))
+                                  )
+                             ELSE soi.tpmProductName
+                        END                  AS category,
                         o.date               AS sale_date,
                         SUM(soi.quantity)    AS batch_qty,
                         SUM(soi.totalAmount) AS batch_revenue
@@ -629,7 +639,16 @@ def report_sell_through():
                     WHERE o.date >= ?
                       AND o.date <= ?
                       AND soi.tpmProductId IS NOT NULL
-                    GROUP BY soi.tpmProductName, o.date
+                    GROUP BY
+                        CASE WHEN CHARINDEX('_', soi.tpmProductName) > 0
+                             THEN SUBSTRING(
+                                      LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1),
+                                      CHARINDEX(' ', LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1)) + 1,
+                                      LEN(LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1))
+                                  )
+                             ELSE soi.tpmProductName
+                        END,
+                        o.date
                 ),
                 sold_cum AS (
                     SELECT
@@ -728,7 +747,14 @@ def report_sell_through():
                 ),
                 sold_by_date AS (
                     SELECT
-                        soi.tpmProductName   AS category,
+                        CASE WHEN CHARINDEX('_', soi.tpmProductName) > 0
+                             THEN SUBSTRING(
+                                      LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1),
+                                      CHARINDEX(' ', LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1)) + 1,
+                                      LEN(LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1))
+                                  )
+                             ELSE soi.tpmProductName
+                        END                  AS category,
                         o.date               AS sale_date,
                         SUM(soi.quantity)    AS batch_qty,
                         SUM(soi.totalAmount) AS batch_revenue
@@ -737,7 +763,16 @@ def report_sell_through():
                     WHERE o.date >= ?
                       AND o.date <= ?
                       AND soi.tpmProductId IS NOT NULL
-                    GROUP BY soi.tpmProductName, o.date
+                    GROUP BY
+                        CASE WHEN CHARINDEX('_', soi.tpmProductName) > 0
+                             THEN SUBSTRING(
+                                      LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1),
+                                      CHARINDEX(' ', LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1)) + 1,
+                                      LEN(LEFT(soi.tpmProductName, CHARINDEX('_', soi.tpmProductName) - 1))
+                                  )
+                             ELSE soi.tpmProductName
+                        END,
+                        o.date
                 ),
                 sold_cum AS (
                     SELECT
