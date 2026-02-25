@@ -482,8 +482,9 @@ def report_items_produced():
     cfg    = load_config()
     active = get_active_company(cfg)
     company_id = active["company_id"] if active else ""
-    start_date = request.args.get("start_date", "")
-    end_date   = request.args.get("end_date", "")
+    today      = datetime.date.today().isoformat()
+    start_date = request.args.get("start_date", today)
+    end_date   = request.args.get("end_date",   today)
     group_by   = request.args.get("group_by", "department")
 
     VALID_GROUPS = {
@@ -535,8 +536,9 @@ def report_sales():
     cfg    = load_config()
     active = get_active_company(cfg)
     company_id = active["company_id"] if active else ""
-    start_date = request.args.get("start_date", "")
-    end_date   = request.args.get("end_date", "")
+    today      = datetime.date.today().isoformat()
+    start_date = request.args.get("start_date", today)
+    end_date   = request.args.get("end_date",   today)
     group_by   = request.args.get("group_by", "date")
 
     # group_col = SQL column, group_label = display name, group_mode = template branch
@@ -653,8 +655,9 @@ def report_sell_through():
     cfg    = load_config()
     active = get_active_company(cfg)
     company_id = active["company_id"] if active else ""
-    start_date = request.args.get("start_date", "")
-    end_date   = request.args.get("end_date", "")
+    today      = datetime.date.today().isoformat()
+    start_date = request.args.get("start_date", today)
+    end_date   = request.args.get("end_date",   today)
     group_by   = request.args.get("group_by", "department")
 
     VALID_GROUPS = {
@@ -1098,10 +1101,9 @@ def report_sales_history():
     company_id = active["company_id"] if active else ""
 
     today      = datetime.date.today().isoformat()
-    month_ago  = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
 
     company_id     = request.args.get("company_id", "")
-    start_date     = request.args.get("start_date", month_ago)
+    start_date     = request.args.get("start_date", today)
     end_date       = request.args.get("end_date",   today)
     sales_type     = request.args.get("sales_type",     "").strip()
     payment_status = request.args.get("payment_status", "").strip()
@@ -1396,8 +1398,7 @@ def report_cashier_performance():
     company_id = active["company_id"] if active else ""
 
     today     = datetime.date.today().isoformat()
-    month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-    start_date = request.args.get("start_date", month_ago)
+    start_date = request.args.get("start_date", today)
     end_date   = request.args.get("end_date",   today)
     sort_by    = request.args.get("sort_by",  "revenue")
     sort_dir   = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
@@ -1457,8 +1458,7 @@ def report_returns():
     company_id = active["company_id"] if active else ""
 
     today     = datetime.date.today().isoformat()
-    month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
-    start_date = request.args.get("start_date", month_ago)
+    start_date = request.args.get("start_date", today)
     end_date   = request.args.get("end_date",   today)
 
     summary, by_cashier, by_category, error = {}, [], [], None
