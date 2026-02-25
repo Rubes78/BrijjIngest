@@ -133,8 +133,10 @@ def report_dashboard():
     companies = get_companies(cfg)
 
     company_id = request.args.get("company_id", "")
-    if not company_id and len(companies) == 1:
-        company_id = companies[0]["company_id"]
+    if not company_id:
+        enabled = [c for c in companies if c["enabled"] and c["db_name"]]
+        if enabled:
+            company_id = enabled[0]["company_id"]
 
     kpis, top_categories, kpi_error = None, [], None
 
