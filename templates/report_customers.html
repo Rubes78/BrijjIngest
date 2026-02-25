@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Customers{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h1><i class="bi bi-people me-2 text-primary"></i>Customers</h1>
+  {% if total_count > 0 %}
+    <span class="text-muted small">{{ '{:,}'.format(total_count) }} customer{{ 's' if total_count != 1 }}</span>
+  {% endif %}
+</div>
+
+<!-- Filter form -->
+<div class="card mb-4">
+  <div class="card-header">Filters</div>
+  <div class="card-body">
+    <form method="get" action="/reports/customers" class="row g-3 align-items-end" id="filter-form">
+
+      <div class="col-md-3">
+        <label class="form-label">Company</label>
+        <select name="company_id" class="form-select" required onchange="this.form.submit()">
+          <option value="">-- select --</option>
+          {% for c in companies %}
+            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-5">
+        <label class="form-label">Search</label>
+        <div class="input-group">
+          <input type="text" name="search" class="form-control"
+                 placeholder="Name, email, or phone…" value="{{ search }}">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-search"></i>
+          </button>
+          {% if search %}
+            <a href="/reports/customers?company_id={{ company_id }}" class="btn btn-outline-secondary">
+              <i class="bi bi-x"></i>
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+  </div>
+
+{% elif rows %}
+
+  <!-- Customer list -->
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <span>
+        {% if search %}
+          Results for "<strong>{{ search }}</strong>"
+        {% else %}
+          All Customers
+        {% endif %}
+      </span>
+      {% if total_pages > 1 %}
+        <span class="text-muted small">Page {{ page }} of {{ total_pages }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0" id="customer-table">
+        <thead class="table-light">
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Groups</th>
+            <th class="text-end">Loyalty Pts</th>
+            <th class="text-end">Store Credit</th>
+            <th class="text-end">On Account</th>
+            <th>Member Since</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="customer-row"
+              style="cursor:pointer"
+              data-id="{{ row[0] }}"
+              data-first="{{ row[1] | e }}"
+              data-last="{{ row[2] | e }}"
+              data-email="{{ row[3] | e }}"
+              data-phone="{{ row[4] | e }}"
+              data-loyalty="{{ '{:.2f}'.format(row[5]) }}"
+              data-credit="{{ '{:.2f}'.format(row[6]) }}"
+              data-onaccount="{{ '{:.2f}'.format(row[7]) }}"
+              data-since="{{ row[8] or '' }}"
+              data-loyalty-enabled="{{ '1' if row[9] else '0' }}"
+              data-tax-exempt="{{ '1' if row[10] else '0' }}"
+              data-promo="{{ '1' if row[11] else '0' }}"
+              data-addr1="{{ row[12] | e }}"
+              data-addr2="{{ row[13] | e }}"
+              data-city="{{ row[14] | e }}"
+              data-state="{{ row[15] | e }}"
+              data-zip="{{ row[16] | e }}"
+              data-country="{{ row[17] | e }}"
+              data-external="{{ row[18] | e }}"
+              data-groups="{{ row[19] | e }}">
+            <td>
+              <div class="fw-semibold">{{ row[1] }} {{ row[2] }}</div>
+            </td>
+            <td class="text-muted">{{ row[3] if row[3] else '—' }}</td>
+            <td class="text-muted">{{ row[4] if row[4] else '—' }}</td>
+            <td>
+              {% if row[19] %}
+                {% for g in row[19].split(', ') %}
+                  <span class="badge rounded-pill bg-light text-dark border me-1">{{ g }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ '{:,.0f}'.format(row[5]) if row[5] else '—' }}</td>
+            <td class="text-end">{{ '${:,.2f}'.format(row[6]) if row[6] else '—' }}</td>
+            <td class="text-end">{{ '${:,.2f}'.format(row[7]) if row[7] else '—' }}</td>
+            <td class="text-muted small">{{ row[8] or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="card-footer bg-white border-top-0 d-flex justify-content-between align-items-center py-3 px-4">
+      <span class="text-muted small">
+        Showing {{ (page - 1) * page_size + 1 }}–{{ [(page * page_size), total_count] | min }} of {{ '{:,}'.format(total_count) }}
+      </span>
+      <nav>
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item {{ 'disabled' if page <= 1 }}">
+            <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ page - 1 }}">
+              <i class="bi bi-chevron-left"></i>
+            </a>
+          </li>
+          {% for p in range([1, page - 2] | max, [total_pages + 1, page + 3] | min) %}
+            <li class="page-item {{ 'active' if p == page }}">
+              <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ p }}">{{ p }}</a>
+            </li>
+          {% endfor %}
+          <li class="page-item {{ 'disabled' if page >= total_pages }}">
+            <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ page + 1 }}">
+              <i class="bi bi-chevron-right"></i>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    {% endif %}
+  </div>
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No customers found{% if search %} matching "<strong>{{ search }}</strong>"{% endif %}.</p>
+    </div>
+  </div>
+
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company above to view customers.</p>
+    </div>
+  </div>
+{% endif %}
+
+<!-- Customer detail offcanvas -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="customerDetail" style="width:420px">
+  <div class="offcanvas-header border-bottom">
+    <div>
+      <h5 class="offcanvas-title mb-0" id="oc-name"></h5>
+      <small class="text-muted" id="oc-id"></small>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+
+    <!-- Contact -->
+    <div class="px-4 py-3 border-bottom">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Contact</div>
+      <div class="d-flex align-items-start gap-2 mb-2" id="oc-email-row">
+        <i class="bi bi-envelope text-muted mt-1"></i>
+        <span id="oc-email"></span>
+      </div>
+      <div class="d-flex align-items-start gap-2" id="oc-phone-row">
+        <i class="bi bi-telephone text-muted mt-1"></i>
+        <span id="oc-phone"></span>
+      </div>
+    </div>
+
+    <!-- Address -->
+    <div class="px-4 py-3 border-bottom" id="oc-address-section">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Address</div>
+      <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-geo-alt text-muted mt-1"></i>
+        <address class="mb-0" id="oc-address"></address>
+      </div>
+    </div>
+
+    <!-- Groups -->
+    <div class="px-4 py-3 border-bottom" id="oc-groups-section">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Groups</div>
+      <div id="oc-groups"></div>
+    </div>
+
+    <!-- Financials -->
+    <div class="px-4 py-3 border-bottom">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Account Balances</div>
+      <div class="row g-2">
+        <div class="col-4 text-center">
+          <div class="fs-5 fw-bold text-primary" id="oc-loyalty"></div>
+          <div class="text-muted" style="font-size:.75rem">Loyalty Points</div>
+        </div>
+        <div class="col-4 text-center">
+          <div class="fs-5 fw-bold text-success" id="oc-credit"></div>
+          <div class="text-muted" style="font-size:.75rem">Store Credit</div>
+        </div>
+        <div class="col-4 text-center">
+          <div class="fs-5 fw-bold text-info" id="oc-onaccount"></div>
+          <div class="text-muted" style="font-size:.75rem">On Account</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preferences -->
+    <div class="px-4 py-3 border-bottom">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Preferences</div>
+      <div class="d-flex flex-column gap-2" id="oc-prefs"></div>
+    </div>
+
+    <!-- Meta -->
+    <div class="px-4 py-3">
+      <div class="fw-semibold text-uppercase text-muted small mb-2" style="letter-spacing:.05em">Account Info</div>
+      <div class="text-muted small" id="oc-meta"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  const offcanvasEl = document.getElementById('customerDetail');
+  const oc = new bootstrap.Offcanvas(offcanvasEl);
+
+  document.querySelectorAll('.customer-row').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      const d = tr.dataset;
+      const fullName = [d.first, d.last].filter(Boolean).join(' ') || '(no name)';
+
+      document.getElementById('oc-name').textContent = fullName;
+      document.getElementById('oc-id').textContent   = 'ID: ' + d.id + (d.external ? '  ·  Ext: ' + d.external : '');
+
+      // Contact
+      const emailRow = document.getElementById('oc-email-row');
+      const phoneRow = document.getElementById('oc-phone-row');
+      document.getElementById('oc-email').textContent = d.email || '—';
+      document.getElementById('oc-phone').textContent = d.phone || '—';
+      emailRow.style.display = d.email ? '' : 'none';
+      phoneRow.style.display = d.phone ? '' : 'none';
+
+      // Address
+      const addrSection = document.getElementById('oc-address-section');
+      const parts = [d.addr1, d.addr2, d.city, d.state, d.zip, d.country].filter(Boolean);
+      const meaningless = ['Unknown'];
+      const meaningful  = parts.filter(p => !meaningless.includes(p));
+      if (meaningful.length) {
+        let lines = [];
+        if (d.addr1 && d.addr1 !== 'Unknown') lines.push(d.addr1);
+        if (d.addr2 && d.addr2 !== 'Unknown') lines.push(d.addr2);
+        let cityLine = [d.city, d.state].filter(p => p && p !== 'Unknown').join(', ');
+        if (d.zip && d.zip !== 'Unknown') cityLine += (cityLine ? ' ' : '') + d.zip;
+        if (cityLine) lines.push(cityLine);
+        if (d.country && d.country !== 'Unknown') lines.push(d.country);
+        document.getElementById('oc-address').innerHTML = lines.join('<br>');
+        addrSection.style.display = '';
+      } else {
+        addrSection.style.display = 'none';
+      }
+
+      // Groups
+      const groupsSection = document.getElementById('oc-groups-section');
+      const groupsEl      = document.getElementById('oc-groups');
+      if (d.groups) {
+        groupsEl.innerHTML = d.groups.split(', ').map(function (g) {
+          return '<span class="badge rounded-pill bg-light text-dark border me-1 mb-1">' + g + '</span>';
+        }).join('');
+        groupsSection.style.display = '';
+      } else {
+        groupsSection.style.display = 'none';
+      }
+
+      // Financials
+      document.getElementById('oc-loyalty').textContent    = parseFloat(d.loyalty).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+      document.getElementById('oc-credit').textContent     = '$' + parseFloat(d.credit).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('oc-onaccount').textContent  = '$' + parseFloat(d.onaccount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+      // Preferences
+      const prefs = [
+        [d.loyaltyEnabled === '1', 'bi-star',       'Loyalty program enrolled'],
+        [d.promo         === '1', 'bi-envelope',    'Receives promotional emails'],
+        [d.taxExempt     === '1', 'bi-receipt-cutoff', 'Tax exempt'],
+      ];
+      document.getElementById('oc-prefs').innerHTML = prefs.map(function (p) {
+        const active = p[0];
+        const color  = active ? 'text-success' : 'text-muted';
+        const icon   = active ? p[1] + '-fill' : p[1];
+        return '<div class="d-flex align-items-center gap-2 ' + color + '">' +
+               '<i class="bi ' + icon + '"></i><span>' + p[2] + '</span></div>';
+      }).join('');
+
+      // Meta
+      document.getElementById('oc-meta').innerHTML =
+        '<i class="bi bi-calendar3 me-1"></i>Member since ' + (d.since || '—');
+
+      oc.show();
+    });
+  });
+})();
+</script>
+
+{% endblock %}

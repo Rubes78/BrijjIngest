@@ -858,6 +858,98 @@ def report_sell_through():
     )
 
 
+@app.route("/reports/customers", methods=["GET"])
+def report_customers():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    company_id = request.args.get("company_id", "")
+    search     = request.args.get("search", "").strip()
+    page       = max(1, int(request.args.get("page", 1) or 1))
+    page_size  = 50
+
+    rows, total_count, error = [], 0, None
+
+    if company_id:
+        try:
+            like = f"%{search}%" if search else "%"
+            offset = (page - 1) * page_size
+
+            count_sql = """
+                SELECT COUNT(DISTINCT c.id)
+                FROM customers c
+                WHERE (
+                    ? = ''
+                    OR ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') LIKE ?
+                    OR ISNULL(c.email,'')       LIKE ?
+                    OR ISNULL(c.phoneNumber,'') LIKE ?
+                )
+            """
+            _, cnt_rows = run_report_query(cfg, company_id, count_sql,
+                                           (search, like, like, like))
+            total_count = cnt_rows[0][0] if cnt_rows else 0
+
+            list_sql = """
+                SELECT
+                    c.id,
+                    ISNULL(c.firstName,'') AS firstName,
+                    ISNULL(c.lastName,'')  AS lastName,
+                    ISNULL(c.email,'')     AS email,
+                    ISNULL(c.phoneNumber,'') AS phoneNumber,
+                    ISNULL(c.loyaltyPoints, 0)    AS loyaltyPoints,
+                    ISNULL(c.storeCredit, 0)      AS storeCredit,
+                    ISNULL(c.onAccountBalance, 0) AS onAccountBalance,
+                    CONVERT(NVARCHAR(10), c.createdAt, 23) AS memberSince,
+                    c.enableLoyaltyProgram,
+                    c.enableTaxExemption,
+                    c.allowToSendPromotionalEmails,
+                    ISNULL(c.addressLine1,'')      AS addressLine1,
+                    ISNULL(c.addressLine2,'')      AS addressLine2,
+                    ISNULL(c.addressCity,'')       AS addressCity,
+                    ISNULL(c.addressStateName,'')  AS addressStateName,
+                    ISNULL(c.addressZipCode,'')    AS addressZipCode,
+                    ISNULL(c.addressCountryName,'') AS addressCountryName,
+                    ISNULL(c.externalId,'')        AS externalId,
+                    ISNULL(STRING_AGG(cg.groupName, ', '), '') AS groups
+                FROM customers c
+                LEFT JOIN customer_groups cg ON cg.customerId = c.id
+                WHERE (
+                    ? = ''
+                    OR ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') LIKE ?
+                    OR ISNULL(c.email,'')       LIKE ?
+                    OR ISNULL(c.phoneNumber,'') LIKE ?
+                )
+                GROUP BY
+                    c.id, c.firstName, c.lastName, c.email, c.phoneNumber,
+                    c.loyaltyPoints, c.storeCredit, c.onAccountBalance, c.createdAt,
+                    c.enableLoyaltyProgram, c.enableTaxExemption,
+                    c.allowToSendPromotionalEmails,
+                    c.addressLine1, c.addressLine2, c.addressCity, c.addressStateName,
+                    c.addressZipCode, c.addressCountryName, c.externalId
+                ORDER BY c.lastName, c.firstName, c.id
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+            """
+            _, rows = run_report_query(cfg, company_id, list_sql,
+                                       (search, like, like, like, offset, page_size))
+        except Exception as e:
+            error = str(e)
+
+    total_pages = max(1, -(-total_count // page_size))  # ceiling division
+
+    return render_template(
+        "report_customers.html",
+        companies=companies,
+        company_id=company_id,
+        search=search,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+        rows=rows,
+        error=error,
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
