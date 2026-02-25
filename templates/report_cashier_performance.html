@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Cashier Performance{% endblock %}
+
+{% macro sort_th(col, label, cls='') %}
+  {% set active = sort_by == col %}
+  {% set next_dir = 'asc' if (active and sort_dir == 'desc') else 'desc' if active else 'desc' %}
+  <th class="{{ cls }}">
+    <a href="/reports/cashier-performance?{{ sort_qs }}&sort_by={{ col }}&sort_dir={{ next_dir }}"
+       class="text-decoration-none d-inline-flex align-items-center gap-1
+              {{ 'flex-row-reverse' if 'text-end' in cls else '' }}
+              {{ 'text-primary fw-semibold' if active else 'text-dark' }}">
+      {{ label }}
+      <i class="bi small
+         {{ 'bi-chevron-up'     if active and sort_dir == 'asc'
+            else 'bi-chevron-down' if active and sort_dir == 'desc'
+            else 'bi-chevron-expand text-muted opacity-50' }}"></i>
+    </a>
+  </th>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h1><i class="bi bi-person-badge me-2 text-primary"></i>Cashier Performance</h1>
+  {% if rows %}
+    <span class="text-muted small">{{ rows | length }} cashier{{ 's' if rows | length != 1 }}</span>
+  {% endif %}
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+  <div class="card-header">Filters</div>
+  <div class="card-body">
+    <form method="get" action="/reports/cashier-performance" class="row g-3 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label">Company</label>
+        <select name="company_id" class="form-select" onchange="this.form.submit()">
+          <option value="">-- select --</option>
+          {% for c in companies %}
+            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">From</label>
+        <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">To</label>
+        <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+      </div>
+      <input type="hidden" name="sort_by"  value="{{ sort_by }}">
+      <input type="hidden" name="sort_dir" value="{{ sort_dir }}">
+      <div class="col-md-auto">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i>Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+
+{% elif rows %}
+<div class="card">
+  <div class="card-header">
+    {{ start_date }} to {{ end_date }}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          {{ sort_th('cashier',     'Cashier') }}
+          {{ sort_th('orders',      'Sales',        'text-end') }}
+          {{ sort_th('revenue',     'Revenue',      'text-end') }}
+          {{ sort_th('avg_order',   'Avg Order',    'text-end') }}
+          {{ sort_th('returns',     'Returns',      'text-end') }}
+          <th class="text-end">Return Value</th>
+          {{ sort_th('return_rate', 'Return Rate',  'text-end') }}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        {# row: [0]cashier [1]sales_count [2]sales_revenue [3]avg_order
+                [4]return_count [5]return_value [6]return_rate #}
+        <tr>
+          <td class="fw-semibold">{{ row[0] }}</td>
+          <td class="text-end text-muted small">{{ '{:,}'.format(row[1]) }}</td>
+          <td class="text-end fw-semibold">${{ '{:,.2f}'.format(row[2]) }}</td>
+          <td class="text-end text-muted small">${{ '{:,.2f}'.format(row[3]) }}</td>
+          <td class="text-end text-muted small">{{ row[4] }}</td>
+          <td class="text-end text-muted small">${{ '{:,.2f}'.format(row[5]) }}</td>
+          <td class="text-end">
+            {% if row[6] > 10 %}
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ '{:.1f}'.format(row[6]) }}%</span>
+            {% elif row[6] > 5 %}
+              <span class="badge bg-warning-subtle text-warning border border-warning-subtle">{{ '{:.1f}'.format(row[6]) }}%</span>
+            {% else %}
+              <span class="text-muted small">{{ '{:.1f}'.format(row[6]) }}%</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <a href="/reports/sales-history?company_id={{ company_id }}&start_date={{ start_date }}&end_date={{ end_date }}&cashier={{ row[0] | urlencode }}"
+               class="btn btn-sm btn-outline-secondary" title="View orders">
+              <i class="bi bi-clock-history"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>Total</td>
+          <td class="text-end">{{ '{:,}'.format(rows | sum(attribute=1)) }}</td>
+          <td class="text-end">${{ '{:,.2f}'.format(rows | sum(attribute=2)) }}</td>
+          <td class="text-end"></td>
+          <td class="text-end">{{ rows | sum(attribute=4) }}</td>
+          <td class="text-end">${{ '{:,.2f}'.format(rows | sum(attribute=5)) }}</td>
+          <td class="text-end"></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No data found for the selected period.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-person-badge fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company above to view cashier performance.</p>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

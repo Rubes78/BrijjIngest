@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title_suffix %} — Returns{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-arrow-return-left me-2 text-primary"></i>Returns Analysis</h1>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+  <div class="card-header">Filters</div>
+  <div class="card-body">
+    <form method="get" action="/reports/returns" class="row g-3 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label">Company</label>
+        <select name="company_id" class="form-select" onchange="this.form.submit()">
+          <option value="">-- select --</option>
+          {% for c in companies %}
+            <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
+              {{ c.company_id }}{% if c.db_name %} ({{ c.db_name }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">From</label>
+        <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">To</label>
+        <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+      </div>
+      <div class="col-md-auto">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i>Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+  <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>
+
+{% elif summary %}
+
+<!-- ── Summary cards ─────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Return Transactions</div>
+        <div class="fs-3 fw-bold text-warning">{{ '{:,}'.format(summary.return_count) }}</div>
+        <div class="text-muted small mt-1">of {{ '{:,}'.format(summary.sale_count + summary.return_count) }} total</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Return Value</div>
+        <div class="fs-3 fw-bold text-warning">${{ '{:,.2f}'.format(summary.return_value) }}</div>
+        <div class="text-muted small mt-1">of ${{ '{:,.2f}'.format(summary.sale_value) }} sales</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Return Rate</div>
+        <div class="fs-3 fw-bold {{ 'text-danger' if summary.return_rate > 10 else 'text-warning' if summary.return_rate > 5 else 'text-success' }}">
+          {{ '{:.1f}'.format(summary.return_rate) }}%
+        </div>
+        <div class="text-muted small mt-1">by transaction count</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card h-100">
+      <div class="card-body text-center py-4">
+        <div class="text-muted small mb-1">Avg Return Value</div>
+        <div class="fs-3 fw-bold text-muted">
+          {% if summary.return_count > 0 %}
+            ${{ '{:,.2f}'.format(summary.return_value / summary.return_count) }}
+          {% else %}—{% endif %}
+        </div>
+        <div class="text-muted small mt-1">per return transaction</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Returns by cashier -->
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-person-badge me-2 text-primary"></i>By Cashier</div>
+      {% if by_cashier %}
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Cashier</th>
+              <th class="text-end">Returns</th>
+              <th class="text-end">Value</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_cashier %}
+            <tr>
+              <td>{{ row[0] }}</td>
+              <td class="text-end text-muted small">{{ row[1] }}</td>
+              <td class="text-end fw-semibold text-warning">${{ '{:,.2f}'.format(row[2]) }}</td>
+              <td class="text-end">
+                <a href="/reports/sales-history?company_id={{ company_id }}&start_date={{ start_date }}&end_date={{ end_date }}&cashier={{ row[0] | urlencode }}&sales_type=ReturnOrder"
+                   class="btn btn-sm btn-outline-secondary" title="View return orders">
+                  <i class="bi bi-clock-history"></i>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-center text-muted py-4">No returns found.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Returns by category -->
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-tags me-2 text-primary"></i>Top Returned Categories</div>
+      {% if by_category %}
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Category</th>
+              <th class="text-end">Units</th>
+              <th class="text-end">Value</th>
+              <th class="text-end">Orders</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in by_category %}
+            <tr>
+              <td class="small">{{ row[0] or '(unnamed)' }}</td>
+              <td class="text-end text-muted small">{{ '{:,}'.format(row[1]) }}</td>
+              <td class="text-end fw-semibold text-warning">${{ '{:,.2f}'.format(row[2]) }}</td>
+              <td class="text-end text-muted small">{{ row[3] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-center text-muted py-4">No return items found.</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{% elif company_id %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">No data found for the selected period.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="bi bi-arrow-return-left fs-1 d-block mb-3 opacity-25"></i>
+      <p class="mb-0">Select a company above to view returns analysis.</p>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

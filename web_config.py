@@ -117,9 +117,67 @@ def index():
     apis      = get_section(cfg, "apis")
     companies = get_companies(cfg)
     stats     = get_company_stats(cfg, companies)
+
+    company_id = request.args.get("company_id", "")
+    if not company_id and len(companies) == 1:
+        company_id = companies[0]["company_id"]
+
+    kpis, top_categories, kpi_error = None, [], None
+
+    if company_id:
+        try:
+            _, rows = run_report_query(cfg, company_id, """
+                SELECT
+                    COUNT(CASE WHEN date = CAST(GETDATE() AS DATE) THEN 1 END),
+                    ISNULL(SUM(CASE WHEN date = CAST(GETDATE() AS DATE) THEN totalAmount END), 0),
+                    COUNT(CASE WHEN date >= DATEADD(day,-7,CAST(GETDATE() AS DATE)) THEN 1 END),
+                    ISNULL(SUM(CASE WHEN date >= DATEADD(day,-7,CAST(GETDATE() AS DATE)) THEN totalAmount END), 0),
+                    COUNT(CASE WHEN date >= DATEADD(day,-30,CAST(GETDATE() AS DATE)) THEN 1 END),
+                    ISNULL(SUM(CASE WHEN date >= DATEADD(day,-30,CAST(GETDATE() AS DATE)) THEN totalAmount END), 0),
+                    ISNULL(SUM(CASE WHEN date >= DATEADD(day,-30,CAST(GETDATE() AS DATE)) THEN totalAmount END) * 1.0
+                           / NULLIF(COUNT(CASE WHEN date >= DATEADD(day,-30,CAST(GETDATE() AS DATE)) THEN 1 END), 0), 0)
+                FROM sales_orders
+                WHERE salesType != 'ReturnOrder' AND paymentStatus = 'Success'
+                  AND date >= DATEADD(day,-30,CAST(GETDATE() AS DATE))
+            """, ())
+            r = rows[0]
+            _, crows = run_report_query(cfg, company_id, "SELECT COUNT(*) FROM customers", ())
+            _, rrows = run_report_query(cfg, company_id, """
+                SELECT COUNT(*), ISNULL(SUM(totalAmount), 0)
+                FROM sales_orders
+                WHERE salesType = 'ReturnOrder'
+                  AND date >= DATEADD(day,-30,CAST(GETDATE() AS DATE))
+            """, ())
+            rr = rrows[0]
+            kpis = {
+                "orders_today": r[0], "rev_today":    float(r[1]),
+                "orders_7d":    r[2], "rev_7d":       float(r[3]),
+                "orders_30d":   r[4], "rev_30d":      float(r[5]),
+                "avg_order_30d": float(r[6]),
+                "customer_count": crows[0][0] if crows else 0,
+                "returns_30d": rr[0], "return_value_30d": float(rr[1]),
+            }
+            _, cat_rows = run_report_query(cfg, company_id, """
+                SELECT TOP 5
+                    ISNULL(soi.productName, soi.tpmProductName) AS category,
+                    SUM(soi.quantity)              AS units,
+                    ISNULL(SUM(soi.totalAmount), 0) AS revenue
+                FROM sales_order_items soi
+                JOIN sales_orders so ON so.salesOrderId = soi.salesOrderId
+                WHERE so.salesType != 'ReturnOrder'
+                  AND so.date >= DATEADD(day,-30,CAST(GETDATE() AS DATE))
+                GROUP BY ISNULL(soi.productName, soi.tpmProductName)
+                ORDER BY revenue DESC
+            """, ())
+            top_categories = [{"name": r[0], "units": r[1], "revenue": float(r[2])} for r in cat_rows]
+        except Exception as e:
+            kpi_error = str(e)
+
     return render_template("index.html",
                            db=db, apis=apis, companies=companies,
-                           stats=stats, config_path=CONFIG_FILE)
+                           stats=stats, config_path=CONFIG_FILE,
+                           company_id=company_id,
+                           kpis=kpis, top_categories=top_categories, kpi_error=kpi_error)
 
 
 @app.route("/database", methods=["GET", "POST"])
@@ -1031,6 +1089,7 @@ def report_sales_history():
     payment_status = request.args.get("payment_status", "").strip()
     search         = request.args.get("search", "").strip()
     customer_id    = request.args.get("customer_id", "").strip()
+    cashier        = request.args.get("cashier",      "").strip()
     sort_by        = request.args.get("sort_by", "date")
     sort_dir       = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
     page           = max(1, int(request.args.get("page", 1) or 1))
@@ -1050,6 +1109,7 @@ def report_sales_history():
         "payment_status": payment_status,
         "search":         search,
         "customer_id":    customer_id,
+        "cashier":        cashier,
     }.items() if v})
     filter_qs_no_cust = urlencode({k: v for k, v in {
         "company_id":     company_id,
@@ -1058,6 +1118,16 @@ def report_sales_history():
         "sales_type":     sales_type,
         "payment_status": payment_status,
         "search":         search,
+        "cashier":        cashier,
+    }.items() if v})
+    filter_qs_no_cashier = urlencode({k: v for k, v in {
+        "company_id":     company_id,
+        "start_date":     start_date,
+        "end_date":       end_date,
+        "sales_type":     sales_type,
+        "payment_status": payment_status,
+        "search":         search,
+        "customer_id":    customer_id,
     }.items() if v})
     sort_qs = urlencode({k: v for k, v in {
         "company_id":     company_id,
@@ -1067,6 +1137,7 @@ def report_sales_history():
         "payment_status": payment_status,
         "search":         search,
         "customer_id":    customer_id,
+        "cashier":        cashier,
         "sort_by":        sort_by,
         "sort_dir":       sort_dir.lower(),
     }.items() if v})
@@ -1107,6 +1178,9 @@ def report_sales_history():
             if customer_id:
                 where_parts.append("o.customerId = ?")
                 where_params.append(int(customer_id))
+            if cashier:
+                where_parts.append("ISNULL(o.userName,'') = ?")
+                where_params.append(cashier)
 
             where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -1166,10 +1240,12 @@ def report_sales_history():
         available_payment_statuses=available_payment_statuses,
         search=search,
         customer_id=customer_id,
+        cashier=cashier,
         sort_by=sort_by,
         sort_dir=sort_dir.lower(),
         filter_qs=filter_qs,
         filter_qs_no_cust=filter_qs_no_cust,
+        filter_qs_no_cashier=filter_qs_no_cashier,
         sort_qs=sort_qs,
         page=page,
         page_size=page_size,
@@ -1288,6 +1364,246 @@ def api_order_detail():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+CASHIER_SORT_COLS = {
+    "cashier":     "cashier {dir}",
+    "orders":      "sales_count {dir}",
+    "revenue":     "sales_revenue {dir}",
+    "avg_order":   "avg_order {dir}",
+    "returns":     "return_count {dir}",
+    "return_rate": "return_rate {dir}",
+}
+
+
+@app.route("/reports/cashier-performance", methods=["GET"])
+def report_cashier_performance():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    today     = datetime.date.today().isoformat()
+    month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+
+    company_id = request.args.get("company_id", "")
+    start_date = request.args.get("start_date", month_ago)
+    end_date   = request.args.get("end_date",   today)
+    sort_by    = request.args.get("sort_by",  "revenue")
+    sort_dir   = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
+
+    if sort_by not in CASHIER_SORT_COLS:
+        sort_by = "revenue"
+    sort_expr = CASHIER_SORT_COLS[sort_by].replace("{dir}", sort_dir)
+
+    rows, error = [], None
+    sort_qs = urlencode({k: v for k, v in {
+        "company_id": company_id,
+        "start_date": start_date,
+        "end_date":   end_date,
+        "sort_by":    sort_by,
+        "sort_dir":   sort_dir.lower(),
+    }.items() if v})
+
+    if company_id:
+        try:
+            _, rows = run_report_query(cfg, company_id, f"""
+                SELECT
+                    ISNULL(userName, '(no cashier)') AS cashier,
+                    COUNT(CASE WHEN salesType != 'ReturnOrder' THEN 1 END) AS sales_count,
+                    ISNULL(SUM(CASE WHEN salesType != 'ReturnOrder' THEN totalAmount END), 0) AS sales_revenue,
+                    ISNULL(
+                        SUM(CASE WHEN salesType != 'ReturnOrder' THEN totalAmount END) * 1.0
+                        / NULLIF(COUNT(CASE WHEN salesType != 'ReturnOrder' THEN 1 END), 0),
+                    0) AS avg_order,
+                    COUNT(CASE WHEN salesType = 'ReturnOrder' THEN 1 END) AS return_count,
+                    ISNULL(SUM(CASE WHEN salesType = 'ReturnOrder' THEN totalAmount END), 0) AS return_value,
+                    ISNULL(
+                        COUNT(CASE WHEN salesType = 'ReturnOrder' THEN 1 END) * 100.0
+                        / NULLIF(COUNT(*), 0),
+                    0) AS return_rate
+                FROM sales_orders
+                WHERE date >= ? AND date <= ?
+                GROUP BY ISNULL(userName, '(no cashier)')
+                ORDER BY {sort_expr}
+            """, (start_date, end_date))
+        except Exception as e:
+            error = str(e)
+
+    return render_template("report_cashier_performance.html",
+        companies=companies,
+        company_id=company_id,
+        start_date=start_date,
+        end_date=end_date,
+        sort_by=sort_by,
+        sort_dir=sort_dir.lower(),
+        sort_qs=sort_qs,
+        rows=rows,
+        error=error,
+    )
+
+
+@app.route("/reports/returns", methods=["GET"])
+def report_returns():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    today     = datetime.date.today().isoformat()
+    month_ago = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
+
+    company_id = request.args.get("company_id", "")
+    start_date = request.args.get("start_date", month_ago)
+    end_date   = request.args.get("end_date",   today)
+
+    summary, by_cashier, by_category, error = {}, [], [], None
+
+    if company_id:
+        try:
+            _, ret_rows = run_report_query(cfg, company_id, """
+                SELECT COUNT(*), ISNULL(SUM(totalAmount), 0)
+                FROM sales_orders
+                WHERE salesType = 'ReturnOrder' AND date >= ? AND date <= ?
+            """, (start_date, end_date))
+            _, sale_rows = run_report_query(cfg, company_id, """
+                SELECT COUNT(*), ISNULL(SUM(totalAmount), 0)
+                FROM sales_orders
+                WHERE salesType != 'ReturnOrder' AND paymentStatus = 'Success'
+                  AND date >= ? AND date <= ?
+            """, (start_date, end_date))
+            rr, sr = ret_rows[0], sale_rows[0]
+            total_txns = (rr[0] + sr[0]) or 1
+            summary = {
+                "return_count": rr[0],  "return_value": float(rr[1]),
+                "sale_count":   sr[0],  "sale_value":   float(sr[1]),
+                "return_rate":  round(rr[0] * 100.0 / total_txns, 1),
+            }
+
+            _, by_cashier = run_report_query(cfg, company_id, """
+                SELECT
+                    ISNULL(userName, '(no cashier)') AS cashier,
+                    COUNT(*)                         AS return_count,
+                    ISNULL(SUM(totalAmount), 0)      AS return_value
+                FROM sales_orders
+                WHERE salesType = 'ReturnOrder' AND date >= ? AND date <= ?
+                GROUP BY ISNULL(userName, '(no cashier)')
+                ORDER BY return_count DESC
+            """, (start_date, end_date))
+
+            _, by_category = run_report_query(cfg, company_id, """
+                SELECT TOP 20
+                    ISNULL(soi.productName, soi.tpmProductName) AS category,
+                    SUM(soi.quantity)                           AS return_qty,
+                    ISNULL(SUM(soi.totalAmount), 0)             AS return_value,
+                    COUNT(DISTINCT soi.salesOrderId)            AS return_orders
+                FROM sales_order_items soi
+                JOIN sales_orders so ON so.salesOrderId = soi.salesOrderId
+                WHERE so.salesType = 'ReturnOrder' AND so.date >= ? AND so.date <= ?
+                GROUP BY ISNULL(soi.productName, soi.tpmProductName)
+                ORDER BY return_qty DESC
+            """, (start_date, end_date))
+        except Exception as e:
+            error = str(e)
+
+    return render_template("report_returns.html",
+        companies=companies,
+        company_id=company_id,
+        start_date=start_date,
+        end_date=end_date,
+        summary=summary,
+        by_cashier=by_cashier,
+        by_category=by_category,
+        error=error,
+    )
+
+
+RETENTION_SORT_COLS = {
+    "name":       "name {dir}",
+    "orders":     "order_count {dir}",
+    "spend":      "total_spend {dir}",
+    "avg_order":  "avg_order {dir}",
+    "last_visit": "last_purchase {dir}",
+    "days_since": "days_since {dir}",
+}
+
+
+@app.route("/reports/customer-retention", methods=["GET"])
+def report_customer_retention():
+    cfg       = load_config()
+    companies = get_companies(cfg)
+
+    company_id  = request.args.get("company_id", "")
+    lapsed_days = request.args.get("lapsed_days", "").strip()
+    sort_by     = request.args.get("sort_by",  "spend")
+    sort_dir    = "DESC" if request.args.get("sort_dir", "desc").lower() == "desc" else "ASC"
+    page        = max(1, int(request.args.get("page", 1) or 1))
+    page_size   = 50
+
+    if sort_by not in RETENTION_SORT_COLS:
+        sort_by = "spend"
+    sort_expr = RETENTION_SORT_COLS[sort_by].replace("{dir}", sort_dir)
+
+    rows, total_count, error = [], 0, None
+    sort_qs = urlencode({k: v for k, v in {
+        "company_id":  company_id,
+        "lapsed_days": lapsed_days,
+        "sort_by":     sort_by,
+        "sort_dir":    sort_dir.lower(),
+    }.items() if v})
+
+    lapsed_having = f"AND DATEDIFF(day, MAX(so.date), CAST(GETDATE() AS DATE)) >= {int(lapsed_days)}" \
+                    if lapsed_days.isdigit() else ""
+
+    if company_id:
+        try:
+            _, cnt_rows = run_report_query(cfg, company_id, f"""
+                SELECT COUNT(*) FROM (
+                    SELECT c.id
+                    FROM customers c
+                    JOIN sales_orders so ON so.customerId = c.id
+                        AND so.salesType != 'ReturnOrder' AND so.paymentStatus = 'Success'
+                    GROUP BY c.id
+                    HAVING COUNT(DISTINCT so.salesOrderId) > 0 {lapsed_having}
+                ) x
+            """, ())
+            total_count = cnt_rows[0][0] if cnt_rows else 0
+
+            _, rows = run_report_query(cfg, company_id, f"""
+                SELECT
+                    c.id,
+                    ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') AS name,
+                    ISNULL(c.email,'')       AS email,
+                    ISNULL(c.phoneNumber,'') AS phone,
+                    COUNT(DISTINCT so.salesOrderId)  AS order_count,
+                    ISNULL(SUM(so.totalAmount), 0)   AS total_spend,
+                    ISNULL(SUM(so.totalAmount) * 1.0
+                           / NULLIF(COUNT(DISTINCT so.salesOrderId), 0), 0) AS avg_order,
+                    CONVERT(NVARCHAR(10), MAX(so.date), 23) AS last_purchase,
+                    DATEDIFF(day, MAX(so.date), CAST(GETDATE() AS DATE)) AS days_since
+                FROM customers c
+                JOIN sales_orders so ON so.customerId = c.id
+                    AND so.salesType != 'ReturnOrder' AND so.paymentStatus = 'Success'
+                GROUP BY c.id, c.firstName, c.lastName, c.email, c.phoneNumber
+                HAVING COUNT(DISTINCT so.salesOrderId) > 0 {lapsed_having}
+                ORDER BY {sort_expr}, c.id
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+            """, ((page - 1) * page_size, page_size))
+        except Exception as e:
+            error = str(e)
+
+    total_pages = max(1, -(-total_count // page_size))
+
+    return render_template("report_customer_retention.html",
+        companies=companies,
+        company_id=company_id,
+        lapsed_days=lapsed_days,
+        sort_by=sort_by,
+        sort_dir=sort_dir.lower(),
+        sort_qs=sort_qs,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+        rows=rows,
+        error=error,
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
