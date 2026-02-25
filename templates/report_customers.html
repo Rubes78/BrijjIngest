@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 {% block title_suffix %} — Customers{% endblock %}
 
+{# ── Sort header macro ─────────────────────────────────────────────────────── #}
+{% macro sort_th(col, label, cls='') %}
+  {% set active = sort_by == col %}
+  {% set next_dir = 'asc' if (active and sort_dir == 'desc') else 'desc' if active else 'asc' %}
+  <th class="{{ cls }}">
+    <a href="/reports/customers?{{ filter_qs }}&sort_by={{ col }}&sort_dir={{ next_dir }}&page=1"
+       class="text-decoration-none d-inline-flex align-items-center gap-1
+              {{ 'flex-row-reverse' if 'text-end' in cls else '' }}
+              {{ 'text-primary fw-semibold' if active else 'text-dark' }}">
+      {{ label }}
+      <i class="bi small
+         {{ 'bi-chevron-up'     if active and sort_dir == 'asc'
+            else 'bi-chevron-down' if active and sort_dir == 'desc'
+            else 'bi-chevron-expand text-muted opacity-50' }}"></i>
+    </a>
+  </th>
+{% endmacro %}
+
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <h1><i class="bi bi-people me-2 text-primary"></i>Customers</h1>
@@ -13,11 +31,11 @@
 <div class="card mb-4">
   <div class="card-header">Filters</div>
   <div class="card-body">
-    <form method="get" action="/reports/customers" class="row g-3 align-items-end" id="filter-form">
+    <form method="get" action="/reports/customers" class="row g-3 align-items-end">
 
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label">Company</label>
-        <select name="company_id" class="form-select" required onchange="this.form.submit()">
+        <select name="company_id" class="form-select" onchange="this.form.submit()">
           <option value="">-- select --</option>
           {% for c in companies %}
             <option value="{{ c.company_id }}" {{ 'selected' if c.company_id == company_id }}>
@@ -27,20 +45,36 @@
         </select>
       </div>
 
-      <div class="col-md-5">
+      <div class="col-md-4">
         <label class="form-label">Search</label>
-        <div class="input-group">
-          <input type="text" name="search" class="form-control"
-                 placeholder="Name, email, or phone…" value="{{ search }}">
-          <button type="submit" class="btn btn-primary">
-            <i class="bi bi-search"></i>
-          </button>
-          {% if search %}
-            <a href="/reports/customers?company_id={{ company_id }}" class="btn btn-outline-secondary">
-              <i class="bi bi-x"></i>
-            </a>
-          {% endif %}
-        </div>
+        <input type="text" name="search" class="form-control"
+               placeholder="Name, email, or phone…" value="{{ search }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Group</label>
+        <select name="group_filter" class="form-select">
+          <option value="">All groups</option>
+          {% for g in available_groups %}
+            <option value="{{ g }}" {{ 'selected' if group_filter == g }}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- preserve sort across filter changes -->
+      <input type="hidden" name="sort_by"  value="{{ sort_by }}">
+      <input type="hidden" name="sort_dir" value="{{ sort_dir }}">
+
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary flex-grow-1">
+          <i class="bi bi-search me-1"></i>Apply
+        </button>
+        {% if search or group_filter %}
+          <a href="/reports/customers?company_id={{ company_id }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}"
+             class="btn btn-outline-secondary">
+            <i class="bi bi-x"></i>
+          </a>
+        {% endif %}
       </div>
 
     </form>
@@ -58,8 +92,12 @@
   <div class="card">
     <div class="card-header d-flex align-items-center justify-content-between">
       <span>
-        {% if search %}
+        {% if search and group_filter %}
+          "<strong>{{ search }}</strong>" in group <strong>{{ group_filter }}</strong>
+        {% elif search %}
           Results for "<strong>{{ search }}</strong>"
+        {% elif group_filter %}
+          Group: <strong>{{ group_filter }}</strong>
         {% else %}
           All Customers
         {% endif %}
@@ -72,14 +110,14 @@
       <table class="table table-hover mb-0" id="customer-table">
         <thead class="table-light">
           <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Groups</th>
-            <th class="text-end">Loyalty Pts</th>
-            <th class="text-end">Store Credit</th>
-            <th class="text-end">On Account</th>
-            <th>Member Since</th>
+            {{ sort_th('name',      'Name') }}
+            {{ sort_th('email',     'Email') }}
+            {{ sort_th('phone',     'Phone') }}
+            {{ sort_th('groups',    'Groups') }}
+            {{ sort_th('loyalty',   'Loyalty Pts',  'text-end') }}
+            {{ sort_th('credit',    'Store Credit', 'text-end') }}
+            {{ sort_th('onaccount', 'On Account',   'text-end') }}
+            {{ sort_th('since',     'Member Since') }}
           </tr>
         </thead>
         <tbody>
@@ -106,9 +144,7 @@
               data-country="{{ row[17] | e }}"
               data-external="{{ row[18] | e }}"
               data-groups="{{ row[19] | e }}">
-            <td>
-              <div class="fw-semibold">{{ row[1] }} {{ row[2] }}</div>
-            </td>
+            <td><div class="fw-semibold">{{ row[1] }} {{ row[2] }}</div></td>
             <td class="text-muted">{{ row[3] if row[3] else '—' }}</td>
             <td class="text-muted">{{ row[4] if row[4] else '—' }}</td>
             <td>
@@ -133,22 +169,23 @@
     {% if total_pages > 1 %}
     <div class="card-footer bg-white border-top-0 d-flex justify-content-between align-items-center py-3 px-4">
       <span class="text-muted small">
-        Showing {{ (page - 1) * page_size + 1 }}–{{ [(page * page_size), total_count] | min }} of {{ '{:,}'.format(total_count) }}
+        Showing {{ (page - 1) * page_size + 1 }}–{{ [page * page_size, total_count] | min }}
+        of {{ '{:,}'.format(total_count) }}
       </span>
       <nav>
         <ul class="pagination pagination-sm mb-0">
           <li class="page-item {{ 'disabled' if page <= 1 }}">
-            <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ page - 1 }}">
+            <a class="page-link" href="/reports/customers?{{ sort_qs }}&page={{ page - 1 }}">
               <i class="bi bi-chevron-left"></i>
             </a>
           </li>
           {% for p in range([1, page - 2] | max, [total_pages + 1, page + 3] | min) %}
             <li class="page-item {{ 'active' if p == page }}">
-              <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ p }}">{{ p }}</a>
+              <a class="page-link" href="/reports/customers?{{ sort_qs }}&page={{ p }}">{{ p }}</a>
             </li>
           {% endfor %}
           <li class="page-item {{ 'disabled' if page >= total_pages }}">
-            <a class="page-link" href="?company_id={{ company_id }}&search={{ search }}&page={{ page + 1 }}">
+            <a class="page-link" href="/reports/customers?{{ sort_qs }}&page={{ page + 1 }}">
               <i class="bi bi-chevron-right"></i>
             </a>
           </li>
@@ -162,7 +199,7 @@
   <div class="card">
     <div class="card-body text-center py-5 text-muted">
       <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-      <p class="mb-0">No customers found{% if search %} matching "<strong>{{ search }}</strong>"{% endif %}.</p>
+      <p class="mb-0">No customers found{% if search %} matching "<strong>{{ search }}</strong>"{% endif %}{% if group_filter %} in group "<strong>{{ group_filter }}</strong>"{% endif %}.</p>
     </div>
   </div>
 
@@ -247,7 +284,6 @@
 
   </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
@@ -265,26 +301,22 @@
       document.getElementById('oc-id').textContent   = 'ID: ' + d.id + (d.external ? '  ·  Ext: ' + d.external : '');
 
       // Contact
-      const emailRow = document.getElementById('oc-email-row');
-      const phoneRow = document.getElementById('oc-phone-row');
       document.getElementById('oc-email').textContent = d.email || '—';
       document.getElementById('oc-phone').textContent = d.phone || '—';
-      emailRow.style.display = d.email ? '' : 'none';
-      phoneRow.style.display = d.phone ? '' : 'none';
+      document.getElementById('oc-email-row').style.display = d.email ? '' : 'none';
+      document.getElementById('oc-phone-row').style.display = d.phone ? '' : 'none';
 
       // Address
       const addrSection = document.getElementById('oc-address-section');
-      const parts = [d.addr1, d.addr2, d.city, d.state, d.zip, d.country].filter(Boolean);
-      const meaningless = ['Unknown'];
-      const meaningful  = parts.filter(p => !meaningless.includes(p));
-      if (meaningful.length) {
-        let lines = [];
-        if (d.addr1 && d.addr1 !== 'Unknown') lines.push(d.addr1);
-        if (d.addr2 && d.addr2 !== 'Unknown') lines.push(d.addr2);
-        let cityLine = [d.city, d.state].filter(p => p && p !== 'Unknown').join(', ');
-        if (d.zip && d.zip !== 'Unknown') cityLine += (cityLine ? ' ' : '') + d.zip;
-        if (cityLine) lines.push(cityLine);
-        if (d.country && d.country !== 'Unknown') lines.push(d.country);
+      const unknown = ['Unknown', ''];
+      const lines = [];
+      if (!unknown.includes(d.addr1)) lines.push(d.addr1);
+      if (!unknown.includes(d.addr2)) lines.push(d.addr2);
+      let cityLine = [d.city, d.state].filter(p => !unknown.includes(p)).join(', ');
+      if (!unknown.includes(d.zip)) cityLine += (cityLine ? ' ' : '') + d.zip;
+      if (cityLine) lines.push(cityLine);
+      if (!unknown.includes(d.country)) lines.push(d.country);
+      if (lines.length) {
         document.getElementById('oc-address').innerHTML = lines.join('<br>');
         addrSection.style.display = '';
       } else {
@@ -304,15 +336,15 @@
       }
 
       // Financials
-      document.getElementById('oc-loyalty').textContent    = parseFloat(d.loyalty).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
-      document.getElementById('oc-credit').textContent     = '$' + parseFloat(d.credit).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-      document.getElementById('oc-onaccount').textContent  = '$' + parseFloat(d.onaccount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('oc-loyalty').textContent   = parseFloat(d.loyalty).toLocaleString('en-US', {maximumFractionDigits: 0});
+      document.getElementById('oc-credit').textContent    = '$' + parseFloat(d.credit).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('oc-onaccount').textContent = '$' + parseFloat(d.onaccount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
       // Preferences
       const prefs = [
-        [d.loyaltyEnabled === '1', 'bi-star',       'Loyalty program enrolled'],
-        [d.promo         === '1', 'bi-envelope',    'Receives promotional emails'],
-        [d.taxExempt     === '1', 'bi-receipt-cutoff', 'Tax exempt'],
+        [d.loyaltyEnabled === '1', 'bi-star',            'Loyalty program enrolled'],
+        [d.promo          === '1', 'bi-envelope',         'Receives promotional emails'],
+        [d.taxExempt      === '1', 'bi-receipt-cutoff',   'Tax exempt'],
       ];
       document.getElementById('oc-prefs').innerHTML = prefs.map(function (p) {
         const active = p[0];
@@ -331,5 +363,4 @@
   });
 })();
 </script>
-
 {% endblock %}

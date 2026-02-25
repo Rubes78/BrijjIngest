@@ -13,6 +13,7 @@ import sys
 import threading
 import uuid
 import pyodbc
+from urllib.parse import urlencode
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
@@ -858,67 +859,109 @@ def report_sell_through():
     )
 
 
+CUSTOMER_SORT_COLS = {
+    "name":       "c.lastName {dir}, c.firstName {dir}",
+    "email":      "c.email {dir}",
+    "phone":      "c.phoneNumber {dir}",
+    "loyalty":    "c.loyaltyPoints {dir}",
+    "credit":     "c.storeCredit {dir}",
+    "onaccount":  "c.onAccountBalance {dir}",
+    "since":      "c.createdAt {dir}",
+    "groups":     "STRING_AGG(cg.groupName, ', ') {dir}",
+}
+
+
 @app.route("/reports/customers", methods=["GET"])
 def report_customers():
     cfg       = load_config()
     companies = get_companies(cfg)
 
-    company_id = request.args.get("company_id", "")
-    search     = request.args.get("search", "").strip()
-    page       = max(1, int(request.args.get("page", 1) or 1))
-    page_size  = 50
+    company_id   = request.args.get("company_id", "")
+    search       = request.args.get("search", "").strip()
+    group_filter = request.args.get("group_filter", "").strip()
+    sort_by      = request.args.get("sort_by", "name")
+    sort_dir     = "DESC" if request.args.get("sort_dir", "asc").lower() == "desc" else "ASC"
+    page         = max(1, int(request.args.get("page", 1) or 1))
+    page_size    = 50
 
-    rows, total_count, error = [], 0, None
+    if sort_by not in CUSTOMER_SORT_COLS:
+        sort_by = "name"
+
+    sort_expr    = CUSTOMER_SORT_COLS[sort_by].replace("{dir}", sort_dir)
+    rows, total_count, available_groups, error = [], 0, [], None
+
+    # Query string fragments for building sort/page links in the template
+    filter_qs = urlencode({k: v for k, v in {
+        "company_id":   company_id,
+        "search":       search,
+        "group_filter": group_filter,
+    }.items() if v})
+    sort_qs = urlencode({k: v for k, v in {
+        "company_id":   company_id,
+        "search":       search,
+        "group_filter": group_filter,
+        "sort_by":      sort_by,
+        "sort_dir":     sort_dir.lower(),
+    }.items() if v})
 
     if company_id:
         try:
-            like = f"%{search}%" if search else "%"
-            offset = (page - 1) * page_size
+            like         = f"%{search}%" if search else "%"
+            offset       = (page - 1) * page_size
+            group_params = (group_filter,) if group_filter else ()
 
-            count_sql = """
-                SELECT COUNT(DISTINCT c.id)
-                FROM customers c
-                WHERE (
+            # Available groups for the filter dropdown
+            _, grp_rows = run_report_query(
+                cfg, company_id,
+                "SELECT DISTINCT groupName FROM customer_groups WHERE groupName IS NOT NULL ORDER BY groupName",
+                ()
+            )
+            available_groups = [r[0] for r in grp_rows]
+
+            group_join  = "JOIN customer_groups cg2 ON cg2.customerId = c.id AND cg2.groupName = ?" if group_filter else ""
+            search_where = """(
                     ? = ''
                     OR ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') LIKE ?
                     OR ISNULL(c.email,'')       LIKE ?
                     OR ISNULL(c.phoneNumber,'') LIKE ?
-                )
+                )"""
+
+            count_sql = f"""
+                SELECT COUNT(DISTINCT c.id)
+                FROM customers c
+                {group_join}
+                WHERE {search_where}
             """
             _, cnt_rows = run_report_query(cfg, company_id, count_sql,
-                                           (search, like, like, like))
+                                           group_params + (search, like, like, like))
             total_count = cnt_rows[0][0] if cnt_rows else 0
 
-            list_sql = """
+            list_sql = f"""
                 SELECT
                     c.id,
-                    ISNULL(c.firstName,'') AS firstName,
-                    ISNULL(c.lastName,'')  AS lastName,
-                    ISNULL(c.email,'')     AS email,
-                    ISNULL(c.phoneNumber,'') AS phoneNumber,
-                    ISNULL(c.loyaltyPoints, 0)    AS loyaltyPoints,
-                    ISNULL(c.storeCredit, 0)      AS storeCredit,
-                    ISNULL(c.onAccountBalance, 0) AS onAccountBalance,
+                    ISNULL(c.firstName,'')          AS firstName,
+                    ISNULL(c.lastName,'')           AS lastName,
+                    ISNULL(c.email,'')              AS email,
+                    ISNULL(c.phoneNumber,'')        AS phoneNumber,
+                    ISNULL(c.loyaltyPoints, 0)      AS loyaltyPoints,
+                    ISNULL(c.storeCredit, 0)        AS storeCredit,
+                    ISNULL(c.onAccountBalance, 0)   AS onAccountBalance,
                     CONVERT(NVARCHAR(10), c.createdAt, 23) AS memberSince,
                     c.enableLoyaltyProgram,
                     c.enableTaxExemption,
                     c.allowToSendPromotionalEmails,
-                    ISNULL(c.addressLine1,'')      AS addressLine1,
-                    ISNULL(c.addressLine2,'')      AS addressLine2,
-                    ISNULL(c.addressCity,'')       AS addressCity,
-                    ISNULL(c.addressStateName,'')  AS addressStateName,
-                    ISNULL(c.addressZipCode,'')    AS addressZipCode,
+                    ISNULL(c.addressLine1,'')       AS addressLine1,
+                    ISNULL(c.addressLine2,'')       AS addressLine2,
+                    ISNULL(c.addressCity,'')        AS addressCity,
+                    ISNULL(c.addressStateName,'')   AS addressStateName,
+                    ISNULL(c.addressZipCode,'')     AS addressZipCode,
                     ISNULL(c.addressCountryName,'') AS addressCountryName,
-                    ISNULL(c.externalId,'')        AS externalId,
+                    ISNULL(c.externalId,'')         AS externalId,
                     ISNULL(STRING_AGG(cg.groupName, ', '), '') AS groups
                 FROM customers c
+                {group_join}
                 LEFT JOIN customer_groups cg ON cg.customerId = c.id
-                WHERE (
-                    ? = ''
-                    OR ISNULL(c.firstName,'') + ' ' + ISNULL(c.lastName,'') LIKE ?
-                    OR ISNULL(c.email,'')       LIKE ?
-                    OR ISNULL(c.phoneNumber,'') LIKE ?
-                )
+                WHERE {search_where}
                 GROUP BY
                     c.id, c.firstName, c.lastName, c.email, c.phoneNumber,
                     c.loyaltyPoints, c.storeCredit, c.onAccountBalance, c.createdAt,
@@ -926,11 +969,11 @@ def report_customers():
                     c.allowToSendPromotionalEmails,
                     c.addressLine1, c.addressLine2, c.addressCity, c.addressStateName,
                     c.addressZipCode, c.addressCountryName, c.externalId
-                ORDER BY c.lastName, c.firstName, c.id
+                ORDER BY {sort_expr}, c.id
                 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
             """
             _, rows = run_report_query(cfg, company_id, list_sql,
-                                       (search, like, like, like, offset, page_size))
+                                       group_params + (search, like, like, like, offset, page_size))
         except Exception as e:
             error = str(e)
 
@@ -941,6 +984,12 @@ def report_customers():
         companies=companies,
         company_id=company_id,
         search=search,
+        group_filter=group_filter,
+        available_groups=available_groups,
+        sort_by=sort_by,
+        sort_dir=sort_dir.lower(),
+        filter_qs=filter_qs,
+        sort_qs=sort_qs,
         page=page,
         page_size=page_size,
         total_count=total_count,
